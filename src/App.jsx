@@ -132,9 +132,17 @@ export default function App() {
   // Logout
   const doLogout = () => { setUser(null); setWallet(null); nav("landing"); };
 
+  const handleSetModal = (fnOrNode) => {
+    if (typeof fnOrNode === "function") {
+      setModal(() => fnOrNode);
+    } else {
+      setModal(fnOrNode);
+    }
+  };
+
   const pageProps = {
     user, wallet, skills, users, notify, nav, getU, getSk,
-    setModal, refreshUser, connectWallet, doLogout,
+    setModal: handleSetModal, refreshUser, connectWallet, doLogout,
   };
 
   return (
@@ -229,7 +237,7 @@ function Modal({ content, close }) {
     <motion.div className="mo" onClick={(e) => e.target.classList.contains("mo") && close()}
       variants={overlayVariants} initial="initial" animate="animate" exit="exit">
       <motion.div className="mo-box" variants={modalVariants} initial="initial" animate="animate" exit="exit">
-        {content(close)}
+        {typeof content === "function" ? content(close) : content}
       </motion.div>
     </motion.div>
   );
