@@ -64,21 +64,33 @@ r.post("/auth/login", async (req, res) => {
 
 r.post("/auth/register", async (req, res) => {
   try {
-    const { name, email, password, bio } = req.body;
+    const { name, email, password, bio, wallet } = req.body;
     const exists = await User.findOne({ email: email.toLowerCase() });
     if (exists) return res.status(409).json({ error: "Email already registered" });
     const avatar = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
     const user = await User.create({
       name, email: email.toLowerCase(), password, bio, avatar,
-      role: "user", wallet: "", credits: 2, earned: 0, spent: 0,
+      role: "user", wallet: wallet || "", credits: 2, earned: 0, spent: 0,
       aictePoints: 0, rep: 0, reviews: 0,
     });
+
+    // Generate blockchain receipt for welcome bonus
+    const txHash = "0x" + Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+    const blockNumber = 45620000 + Math.floor(Math.random() * 9000);
+
     // Record welcome bonus transaction
     await Transaction.create({
       fromId: "SYSTEM", toId: user._id.toString(), bookingId: null,
       amount: 2, type: "initial_credits", desc: "Welcome bonus — 2 starter credits",
-      txHash: null, blockNumber: null,
+      txHash, blockNumber,
     });
+
+    await Blockchain.create({
+      block: blockNumber, txHash,
+      from: "SYSTEM", to: wallet || user._id.toString(),
+      amount: 2, type: "MINT",
+    });
+
     res.status(201).json(user);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -126,7 +138,21 @@ r.get("/services", async (_req, res) => {
 });
 
 r.post("/services", async (req, res) => {
-  try { res.status(201).json(await Service.create(req.body)); }
+  try {
+    let { skillId, customSkillName, customSkillCategory } = req.body;
+    if (skillId === "custom" && customSkillName) {
+      const nameVal = customSkillName.trim();
+      const catVal = (customSkillCategory || "Technology").trim();
+      let skill = await Skill.findOne({
+        name: { $regex: new RegExp(`^${nameVal.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") }
+      });
+      if (!skill) {
+        skill = await Skill.create({ name: nameVal, category: catVal });
+      }
+      req.body.skillId = skill._id;
+    }
+    res.status(201).json(await Service.create(req.body));
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 

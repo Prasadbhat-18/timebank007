@@ -33,6 +33,7 @@ const serviceSchema = new Schema({
   title:       { type: String, required: true, trim: true },
   description: { type: String, required: true },
   hours:       { type: Number, required: true, min: 0.5 },
+  images:      { type: [String], default: [] },
   status:      { type: String, enum: ["active", "paused", "deleted"], default: "active" },
 }, { timestamps: true });
 

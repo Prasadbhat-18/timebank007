@@ -1,8 +1,83 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, cloneElement, isValidElement } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ethers } from "ethers";
 import { AICTE_CFG } from "./store.js";
 import * as api from "./api.js";
 import * as chain from "./blockchain.js";
+
+// ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
+export function ClockIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+export function ChainIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+export function AicteIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+      <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5" />
+    </svg>
+  );
+}
+
+export function ChatIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+export function BookingIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+export function SosIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+export function LockIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+export function StarIcon({ size = 16, color = "currentColor", fill = "none" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
 
 // ─── Animation Variants ──────────────────────────────────────────────────────
 const pageVariants = {
@@ -54,15 +129,21 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Load skills on mount
-  useEffect(() => {
+  const loadSkills = useCallback(() => {
     api.fetchSkills().then(setSkills).catch(() => {});
   }, []);
+
+  // Load skills on mount
+  useEffect(() => {
+    loadSkills();
+  }, [loadSkills]);
 
   // Load all users when logged in
   useEffect(() => {
     if (user) api.fetchUsers().then(setUsers).catch(() => {});
   }, [user]);
+
+
 
   const notify = useCallback((msg, type = "success") => {
     const id = Date.now() + Math.random();
@@ -83,10 +164,25 @@ export default function App() {
     } catch {}
   }, [user]);
 
+  // Auto-connect wallet hook when user is logged in
+  useEffect(() => {
+    if (user && !wallet) {
+      chain.connectWallet(user.email).then(async (w) => {
+        const balance = await chain.getBalance(w.provider, w.address);
+        setWallet({ ...w, balance });
+        if (user.wallet !== w.address) {
+          await api.updateUser(user._id, { wallet: w.address });
+          refreshUser();
+        }
+      }).catch(() => {});
+    }
+  }, [user, wallet, refreshUser]);
+
   // Wallet connection
-  const connectWallet = useCallback(async () => {
+  const connectWallet = useCallback(async (email) => {
     try {
-      const w = await chain.connectWallet();
+      const targetEmail = email || user?.email || "default";
+      const w = await chain.connectWallet(targetEmail);
       const balance = await chain.getBalance(w.provider, w.address);
       setWallet({ ...w, balance });
       if (user) {
@@ -122,10 +218,21 @@ export default function App() {
   // Register
   const doRegister = async (name, email, pass, bio) => {
     try {
-      const u = await api.register(name, email, pass, bio);
+      const keyName = `timebank_inbuilt_private_key_${email.toLowerCase()}`;
+      let privateKey = localStorage.getItem(keyName);
+      let walletAddr = "";
+      if (!privateKey) {
+        const w = ethers.Wallet.createRandom();
+        localStorage.setItem(keyName, w.privateKey);
+        walletAddr = w.address;
+      } else {
+        walletAddr = new ethers.Wallet(privateKey).address;
+      }
+
+      const u = await api.register(name, email, pass, bio, walletAddr);
       setUser(u);
       nav("dashboard");
-      notify("Welcome! You received 2 starter credits 🎉");
+      notify("Welcome! You received 2 starter credits on-chain! 🎉");
     } catch (e) { notify(e.message, "error"); }
   };
 
@@ -143,6 +250,7 @@ export default function App() {
   const pageProps = {
     user, wallet, skills, users, notify, nav, getU, getSk,
     setModal: handleSetModal, refreshUser, connectWallet, doLogout,
+    loadSkills,
   };
 
   return (
@@ -197,7 +305,10 @@ function Nav({ user, page, nav, clockAngle, doLogout }) {
             ))
           )}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="nav-badge">⏱ {user.credits} cr</span>
+            <span className="nav-badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              <ClockIcon size={13} color="var(--em)" />
+              <span>{user.credits} cr</span>
+            </span>
             <div className="nav-av" onClick={() => nav(user.role === "admin" ? "admin" : "profile")}>{user.avatar}</div>
             <button className="nl" onClick={doLogout}>Sign out</button>
           </div>
@@ -233,11 +344,14 @@ function NotifStack({ notifs }) {
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
 function Modal({ content, close }) {
+  const renderedContent = typeof content === "function"
+    ? content(close)
+    : (isValidElement(content) ? cloneElement(content, { close }) : content);
   return (
     <motion.div className="mo" onClick={(e) => e.target.classList.contains("mo") && close()}
       variants={overlayVariants} initial="initial" animate="animate" exit="exit">
       <motion.div className="mo-box" variants={modalVariants} initial="initial" animate="animate" exit="exit">
-        {typeof content === "function" ? content(close) : content}
+        {renderedContent}
       </motion.div>
     </motion.div>
   );
@@ -246,12 +360,12 @@ function Modal({ content, close }) {
 // ─── LANDING ─────────────────────────────────────────────────────────────────
 function Landing({ nav }) {
   const feats = [
-    { icon: "⏱", bg: "#f0faf5", t: "Time credit economy", d: "1 hour of any skill equals 1 credit. Fair, transparent, and universally valued across the platform." },
-    { icon: "⛓", bg: "#f5f0ff", t: "Blockchain verified", d: "Every credit transfer is recorded on Polygon Amoy as an immutable, verifiable transaction." },
-    { icon: "🎓", bg: "#eff6ff", t: "AICTE recognition", d: "Workshops, hackathons, and internships earn bonus credits with AICTE point tracking." },
-    { icon: "💬", bg: "#f0fdfa", t: "Direct messaging", d: "Coordinate sessions, share resources, and communicate directly with your skill partner." },
-    { icon: "📅", bg: "#fffbeb", t: "Session booking", d: "Schedule, confirm, and complete sessions with a structured workflow and blockchain receipt." },
-    { icon: "🚨", bg: "#fef2f2", t: "Emergency SOS", d: "Alert your emergency contacts with one tap. Safety is built into the platform." },
+    { icon: <ClockIcon size={20} color="var(--em)" />, bg: "var(--em-bg)", t: "Time credit economy", d: "1 hour of any skill equals 1 credit. Fair, transparent, and universally valued across the platform." },
+    { icon: <ChainIcon size={20} color="var(--purple)" />, bg: "var(--purple-bg)", t: "Blockchain verified", d: "Every credit transfer is recorded on Polygon Amoy as an immutable, verifiable transaction." },
+    { icon: <AicteIcon size={20} color="var(--blue)" />, bg: "var(--blue-bg)", t: "AICTE recognition", d: "Workshops, hackathons, and internships earn bonus credits with AICTE point tracking." },
+    { icon: <ChatIcon size={20} color="var(--teal)" />, bg: "var(--teal-bg)", t: "Direct messaging", d: "Coordinate sessions, share resources, and communicate directly with your skill partner." },
+    { icon: <BookingIcon size={20} color="var(--amber)" />, bg: "var(--amber-bg)", t: "Session booking", d: "Schedule, confirm, and complete sessions with a structured workflow and blockchain receipt." },
+    { icon: <SosIcon size={20} color="var(--red)" />, bg: "var(--red-bg)", t: "Emergency SOS", d: "Alert your emergency contacts with one tap. Safety is built into the platform." },
   ];
   const howSteps = [
     { n: 1, t: "Create your account", d: "Sign up with your email, set up your profile, and receive 2 starter credits." },
@@ -437,19 +551,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 
   const sos = () => {
     if (!emergency.length) { notify("No emergency contacts — add them in Profile", "warning"); return; }
-    setModal((close) => (
-      <div>
-        <div className="mo-t" style={{ color: "#dc2626" }}>🚨 SOS Alert</div>
-        <p className="text-s" style={{ fontSize: 13, marginBottom: 12 }}>These contacts will be alerted:</p>
-        {emergency.map((c) => (
-          <div key={c._id} className="row mb1" style={{ background: "var(--bg)", borderRadius: 8, padding: ".75rem" }}>
-            <div className="av" style={{ background: "#dc2626", width: 32, height: 32, fontSize: 11 }}>{c.name[0]}</div>
-            <div><div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div><div className="text-m" style={{ fontSize: 12 }}>{c.phone} · {c.relation}</div></div>
-          </div>
-        ))}
-        <button className="btn btn-d mt2" style={{ width: "100%", justifyContent: "center" }} onClick={() => { close(); notify("SOS alert sent!", "warning"); }}>Confirm — alert now</button>
-      </div>
-    ));
+    setModal(<SosModal emergency={emergency} notify={notify} />);
   };
 
   return (
@@ -461,13 +563,16 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 
       <motion.div className="g3" variants={stagger} initial="initial" animate="animate">
         {[
-          { l: "Time credits", v: `⏱ ${user.credits}`, s: "On-chain balance", c: "text-g" },
-          { l: "AICTE points", v: `🎓 ${apts}`, s: `${verifiedAicte.length} activities`, c: "text-p" },
-          { l: "Pending bookings", v: pending, s: "Awaiting action", c: "" },
-          { l: "Reputation", v: user.rep ? `★ ${user.rep}` : "—", s: `${user.reviews} reviews`, c: "" },
+          { l: "Time credits", v: user.credits, s: "On-chain balance", c: "text-g", i: <ClockIcon size={16} color="var(--em)" /> },
+          { l: "AICTE points", v: apts, s: `${verifiedAicte.length} activities`, c: "text-p", i: <AicteIcon size={16} color="var(--purple)" /> },
+          { l: "Pending bookings", v: pending, s: "Awaiting action", c: "", i: <BookingIcon size={16} color="var(--blue)" /> },
+          { l: "Reputation", v: user.rep ? user.rep : "—", s: `${user.reviews} reviews`, c: "", i: <StarIcon size={16} color="var(--amber)" fill="var(--amber)" /> },
         ].map((st, i) => (
           <motion.div key={st.l} className="stat" variants={fadeUp(i * 0.06)}>
-            <div className="stat-l">{st.l}</div>
+            <div className="btwn" style={{ marginBottom: "8px", alignItems: "center" }}>
+              <div className="stat-l" style={{ margin: 0 }}>{st.l}</div>
+              <div style={{ display: "flex", alignItems: "center" }}>{st.i}</div>
+            </div>
             <div className={`stat-v ${st.c}`}>{st.v}</div>
             <div className="stat-s">{st.s}</div>
           </motion.div>
@@ -517,7 +622,13 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 
       <motion.div className="sos-band" {...fadeUp(0.25)}>
         <div className="btwn">
-          <div><div style={{ fontWeight: 700, color: "var(--red)", fontSize: 14 }}>🚨 Emergency SOS</div><div className="text-s" style={{ fontSize: 13, marginTop: 2 }}>Alert all emergency contacts instantly</div></div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, color: "var(--red)", fontSize: 14 }}>
+              <SosIcon size={16} color="var(--red)" />
+              <span>Emergency SOS</span>
+            </div>
+            <div className="text-s" style={{ fontSize: 13, marginTop: 2 }}>Alert all emergency contacts instantly</div>
+          </div>
           <button className="btn btn-d btn-sm" onClick={sos}>Send SOS</button>
         </div>
       </motion.div>
@@ -526,7 +637,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 }
 
 // ─── SERVICES ────────────────────────────────────────────────────────────────
-function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUser }) {
+function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUser, loadSkills }) {
   const [services, setServices] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -545,57 +656,30 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
 
   const openDetail = (svc) => {
     const prov = getU(svc.providerId), sk = getSk(svc.skillId), own = svc.providerId === user._id;
-    setModal((close) => {
-      let dt = "", notes = "";
-      return (
-        <div>
-          <div className="mo-t">{svc.title}</div>
-          {prov && <div className="row mb1"><div className="av">{prov.avatar}</div><div><div style={{ fontWeight: 700 }}>{prov.name}</div><div className="text-m" style={{ fontSize: 12 }}>★ {prov.rep || "New"} · {prov.reviews} reviews</div></div></div>}
-          <div className="row mb1">{sk && <span className="tag tb">{sk.category}</span>}<span className="tag tg">⏱ {svc.hours} credit{svc.hours > 1 ? "s" : ""}</span></div>
-          <p className="text-s" style={{ fontSize: 13, lineHeight: 1.65, marginBottom: 12 }}>{svc.description}</p>
-          {!own ? (
-            <>
-              <hr className="div" />
-              <div className="field"><label>Date & time</label><input className="fi" type="datetime-local" onChange={(e) => (dt = e.target.value)} /></div>
-              <div className="field"><label>Notes for provider</label><textarea className="fi" rows={2} placeholder="What do you need help with?" onChange={(e) => (notes = e.target.value)} style={{ resize: "vertical" }} /></div>
-              <p className="text-m" style={{ fontSize: 12, marginBottom: 10 }}>Cost: {svc.hours} credit{svc.hours > 1 ? "s" : ""} (you have {user.credits})</p>
-              <button className="btn btn-p" onClick={async () => {
-                if (!dt) { notify("Select a date and time", "error"); return; }
-                if (user.credits < svc.hours) { notify("Not enough credits", "error"); return; }
-                try {
-                  await api.createBooking({ serviceId: svc._id, providerId: svc.providerId, requesterId: user._id, scheduledStart: dt, hours: svc.hours, notes });
-                  notify(`Booking sent to ${prov?.name}!`);
-                  close();
-                  nav("bookings");
-                } catch (e) { notify(e.message, "error"); }
-              }}>Confirm booking</button>
-            </>
-          ) : <p className="text-a" style={{ fontSize: 13, marginTop: 8 }}>This is your own listing.</p>}
-        </div>
-      );
-    });
+    setModal(
+      <ServiceDetailModal
+        user={user}
+        svc={svc}
+        prov={prov}
+        sk={sk}
+        own={own}
+        notify={notify}
+        nav={nav}
+        refreshUser={refreshUser}
+      />
+    );
   };
 
   const openCreate = () => {
-    setModal((close) => {
-      let t = "", skId = skills[0]?._id || "", d = "", h = 1;
-      return (
-        <div>
-          <div className="mo-t">Offer a skill</div>
-          <div className="field"><label>Title</label><input className="fi" placeholder="e.g. React debugging session" onChange={(e) => (t = e.target.value)} /></div>
-          <div className="field"><label>Skill</label><select className="fi" onChange={(e) => (skId = e.target.value)}>{skills.map((s) => <option key={s._id} value={s._id}>{s.name} ({s.category})</option>)}</select></div>
-          <div className="field"><label>Description</label><textarea className="fi" rows={3} placeholder="What will you help with?" onChange={(e) => (d = e.target.value)} style={{ resize: "vertical" }} /></div>
-          <div className="field"><label>Duration (hours)</label><input className="fi" type="number" defaultValue={1} min={0.5} step={0.5} style={{ width: 120 }} onChange={(e) => (h = parseFloat(e.target.value))} /></div>
-          <button className="btn btn-p" onClick={async () => {
-            if (!t || !d || !h) { notify("Fill all fields", "error"); return; }
-            try {
-              await api.createService({ providerId: user._id, skillId: skId, title: t, description: d, hours: h });
-              notify("Service posted!"); close(); load();
-            } catch (e) { notify(e.message, "error"); }
-          }}>Post listing</button>
-        </div>
-      );
-    });
+    setModal(
+      <OfferSkillModal
+        user={user}
+        skills={skills}
+        notify={notify}
+        load={load}
+        loadSkills={loadSkills}
+      />
+    );
   };
 
   return (
@@ -614,6 +698,9 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
             const prov = getU(s.providerId), sk = getSk(s.skillId);
             return (
               <motion.div key={s._id} className="svc-card" onClick={() => openDetail(s)} variants={fadeUp()} {...cardHover}>
+                {s.images && s.images.length > 0 && (
+                  <ImageSlider images={s.images} />
+                )}
                 <div className="btwn mb1"><span className="tag tb">{sk?.name || "Skill"}</span><span className="tag tg">⏱ {s.hours}h</span></div>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{s.title}</div>
                 <div className="text-s" style={{ fontSize: 13, lineHeight: 1.55, marginBottom: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.description}</div>
@@ -758,6 +845,21 @@ function Wallet({ user, wallet, notify, connectWallet }) {
         )}
       </motion.div>
 
+      {wallet && (
+        <motion.div className="card mb2" style={{ borderLeft: "4px solid var(--amber)", background: "rgba(245, 158, 11, 0.05)" }} {...fadeUp(0.15)}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+            <span style={{ fontSize: "16px", color: "var(--amber)", marginTop: "2px" }}>⚠️</span>
+            <div style={{ fontSize: "12.5px", lineHeight: "1.4", color: "var(--text-secondary)" }}>
+              <strong style={{ color: "#fff", display: "block", marginBottom: "4px" }}>Gas Funding Required for On-Chain Logs</strong>
+              To perform real blockchain activities, your wallet must have native <strong>POL</strong> gas. If your balance is <strong>0.0000 POL</strong>, please copy your address above and request free testnet gas:
+              <a href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer" style={{ color: "var(--em)", fontWeight: "700", display: "inline-block", marginLeft: "6px", textDecoration: "underline" }}>
+                Official Polygon Faucet ↗
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       <motion.div className="card mb2" {...fadeUp(0.2)}>
         <div className="card-t">Transaction history</div>
         {txs.length === 0 ? <div className="text-m" style={{ fontSize: 13 }}>No transactions yet</div> : txs.map((tx) => {
@@ -814,30 +916,7 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
   const totalCr = verified.reduce((s, a) => s + a.credits, 0);
 
   const openSubmit = () => {
-    setModal((close) => {
-      let type = "workshop", title = "", org = "", date = "", cert = "";
-      return (
-        <div>
-          <div className="mo-t">Submit AICTE activity</div>
-          <div className="field"><label>Activity type</label>
-            <select className="fi" onChange={(e) => (type = e.target.value)}>
-              {Object.entries(AICTE_CFG).map(([k, v]) => <option key={k} value={k}>{v.label} (+{v.pts} pts, +{v.credits} cr)</option>)}
-            </select>
-          </div>
-          <div className="field"><label>Title</label><input className="fi" placeholder="e.g. Smart India Hackathon 2026" onChange={(e) => (title = e.target.value)} /></div>
-          <div className="field"><label>Organizer</label><input className="fi" placeholder="e.g. AICTE / VTU" onChange={(e) => (org = e.target.value)} /></div>
-          <div className="field"><label>Date</label><input className="fi" type="date" onChange={(e) => (date = e.target.value)} /></div>
-          <div className="field"><label>Certificate URL (optional)</label><input className="fi" placeholder="https://..." onChange={(e) => (cert = e.target.value)} /></div>
-          <button className="btn btn-p" onClick={async () => {
-            if (!title || !org || !date) { notify("Fill all required fields", "error"); return; }
-            try {
-              await api.createAicte({ userId: user._id, type, title, organizer: org, date, certUrl: cert });
-              notify("Activity submitted for admin verification!"); close(); load();
-            } catch (e) { notify(e.message, "error"); }
-          }}>Submit for verification</button>
-        </div>
-      );
-    });
+    setModal(<SubmitAicteModal user={user} notify={notify} load={load} />);
   };
 
   return (
@@ -901,25 +980,7 @@ function ChatPage({ user, users, notify, setModal }) {
   };
 
   const newChat = () => {
-    const others = users.filter((u) => u._id !== user._id && u.role !== "admin");
-    setModal((close) => (
-      <div>
-        <div className="mo-t">Start a conversation</div>
-        {others.length === 0 ? <div className="empty">No other users yet.</div> : others.map((u) => (
-          <div key={u._id} className="row mb1" style={{ cursor: "pointer", padding: ".75rem", borderRadius: 8, border: "1px solid var(--border)" }}
-            onClick={async () => {
-              try {
-                const chat = await api.createChat([user._id, u._id]);
-                close(); load();
-                setActiveChat(chat);
-              } catch (e) { notify(e.message, "error"); }
-            }}>
-            <div className="av" style={{ width: 32, height: 32, fontSize: 11 }}>{u.avatar}</div>
-            <div><div style={{ fontWeight: 700, fontSize: 13 }}>{u.name}</div><div className="text-m" style={{ fontSize: 12 }}>{u.bio}</div></div>
-          </div>
-        ))}
-      </div>
-    ));
+    setModal(<NewChatModal user={user} users={users} load={load} setActiveChat={setActiveChat} notify={notify} />);
   };
 
   const getOther = (chat) => {
@@ -980,45 +1041,11 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
   }, [user]);
 
   const editProfile = () => {
-    setModal((close) => {
-      let name = user.name, bio = user.bio;
-      return (
-        <div>
-          <div className="mo-t">Edit profile</div>
-          <div className="field"><label>Name</label><input className="fi" defaultValue={name} onChange={(e) => (name = e.target.value)} /></div>
-          <div className="field"><label>Bio</label><textarea className="fi" rows={3} defaultValue={bio} onChange={(e) => (bio = e.target.value)} style={{ resize: "vertical" }} /></div>
-          <button className="btn btn-p" onClick={async () => {
-            try {
-              const av = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-              await api.updateUser(user._id, { name, bio, avatar: av });
-              await refreshUser(); close(); notify("Profile updated!");
-            } catch (e) { notify(e.message, "error"); }
-          }}>Save changes</button>
-        </div>
-      );
-    });
+    setModal(<EditProfileModal user={user} refreshUser={refreshUser} notify={notify} />);
   };
 
   const addContact = () => {
-    setModal((close) => {
-      let name = "", phone = "", relation = "";
-      return (
-        <div>
-          <div className="mo-t">Add emergency contact</div>
-          <div className="field"><label>Name</label><input className="fi" placeholder="Contact name" onChange={(e) => (name = e.target.value)} /></div>
-          <div className="field"><label>Phone</label><input className="fi" placeholder="+91 98765 43210" onChange={(e) => (phone = e.target.value)} /></div>
-          <div className="field"><label>Relation</label><input className="fi" placeholder="Parent, Friend, etc." onChange={(e) => (relation = e.target.value)} /></div>
-          <button className="btn btn-p" onClick={async () => {
-            if (!name || !phone || !relation) { notify("Fill all fields", "error"); return; }
-            try {
-              await api.addEmergencyContact({ userId: user._id, name, phone, relation });
-              const contacts = await api.fetchEmergencyContacts(user._id);
-              setEmergency(contacts); close(); notify("Contact added!");
-            } catch (e) { notify(e.message, "error"); }
-          }}>Add contact</button>
-        </div>
-      );
-    });
+    setModal(<AddContactModal user={user} notify={notify} setEmergency={setEmergency} />);
   };
 
   const removeContact = async (id) => {
@@ -1256,6 +1283,439 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
           </motion.div>
         )
       )}
+    </div>
+  );
+}
+
+// ─── IMAGE SLIDER ────────────────────────────────────────────────────────────
+export function ImageSlider({ images }) {
+  const [index, setIndex] = useState(0);
+
+  if (!images || images.length === 0) return null;
+
+  const next = (e) => {
+    e.stopPropagation();
+    setIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const prev = (e) => {
+    e.stopPropagation();
+    setIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  return (
+    <div className="img-slider" onClick={(e) => e.stopPropagation()}>
+      <div className="img-slider-inner" style={{ transform: `translateX(-${index * 100}%)` }}>
+        {images.map((img, i) => (
+          <img key={i} src={img} alt={`Slide ${i}`} className="img-slide" onError={(e) => {
+            e.target.src = "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600";
+          }} />
+        ))}
+      </div>
+      {images.length > 1 && (
+        <>
+          <button className="slider-btn prev" onClick={prev}>‹</button>
+          <button className="slider-btn next" onClick={next}>›</button>
+          <div className="slider-dots">
+            {images.map((_, i) => (
+              <span key={i} className={`slider-dot${i === index ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); setIndex(i); }} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── SOS MODAL ───────────────────────────────────────────────────────────────
+export function SosModal({ emergency, close, notify }) {
+  return (
+    <div>
+      <div className="mo-t" style={{ color: "#dc2626" }}>🚨 SOS Alert</div>
+      <p className="text-s" style={{ fontSize: 13, marginBottom: 12 }}>These contacts will be alerted:</p>
+      {emergency.map((c) => (
+        <div key={c._id} className="row mb1" style={{ background: "var(--bg)", borderRadius: 8, padding: ".75rem" }}>
+          <div className="av" style={{ background: "#dc2626", width: 32, height: 32, fontSize: 11 }}>{c.name[0]}</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+            <div className="text-m" style={{ fontSize: 12 }}>{c.phone} · {c.relation}</div>
+          </div>
+        </div>
+      ))}
+      <button className="btn btn-d mt2" style={{ width: "100%", justifyContent: "center" }} onClick={() => { close(); notify("SOS alert sent!", "warning"); }}>Confirm — alert now</button>
+    </div>
+  );
+}
+
+// ─── NEW CHAT MODAL ──────────────────────────────────────────────────────────
+export function NewChatModal({ user, users, close, load, setActiveChat, notify }) {
+  const others = users.filter((u) => u._id !== user._id && u.role !== "admin");
+  return (
+    <div>
+      <div className="mo-t">Start a conversation</div>
+      {others.length === 0 ? <div className="empty">No other users yet.</div> : others.map((u) => (
+        <div key={u._id} className="row mb1" style={{ cursor: "pointer", padding: ".75rem", borderRadius: 8, border: "1px solid var(--border)" }}
+          onClick={async () => {
+            try {
+              const chat = await api.createChat([user._id, u._id]);
+              close();
+              load();
+              setActiveChat(chat);
+            } catch (e) { notify(e.message, "error"); }
+          }}>
+          <div className="av" style={{ width: 32, height: 32, fontSize: 11 }}>{u.avatar}</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{u.name}</div>
+            <div className="text-m" style={{ fontSize: 12 }}>{u.bio}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── ADD CONTACT MODAL ───────────────────────────────────────────────────────
+export function AddContactModal({ user, close, notify, setEmergency }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [relation, setRelation] = useState("");
+
+  const handleAdd = async () => {
+    if (!name || !phone || !relation) { notify("Fill all fields", "error"); return; }
+    try {
+      await api.addEmergencyContact({ userId: user._id, name, phone, relation });
+      const contacts = await api.fetchEmergencyContacts(user._id);
+      setEmergency(contacts);
+      close();
+      notify("Contact added!");
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Add emergency contact</div>
+      <div className="field">
+        <label>Name</label>
+        <input className="fi" placeholder="Contact name" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Phone</label>
+        <input className="fi" placeholder="+91 98765 43210" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Relation</label>
+        <input className="fi" placeholder="Parent, Friend, etc." value={relation} onChange={(e) => setRelation(e.target.value)} />
+      </div>
+      <button className="btn btn-p" onClick={handleAdd}>Add contact</button>
+    </div>
+  );
+}
+
+// ─── EDIT PROFILE MODAL ──────────────────────────────────────────────────────
+export function EditProfileModal({ user, refreshUser, close, notify }) {
+  const [name, setName] = useState(user.name);
+  const [bio, setBio] = useState(user.bio);
+
+  const handleSave = async () => {
+    if (!name.trim()) { notify("Name is required", "error"); return; }
+    try {
+      const av = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+      await api.updateUser(user._id, { name, bio, avatar: av });
+      await refreshUser();
+      close();
+      notify("Profile updated!");
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Edit profile</div>
+      <div className="field">
+        <label>Name</label>
+        <input className="fi" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Bio</label>
+        <textarea className="fi" rows={3} value={bio} onChange={(e) => setBio(e.target.value)} style={{ resize: "vertical" }} />
+      </div>
+      <button className="btn btn-p" onClick={handleSave}>Save changes</button>
+    </div>
+  );
+}
+
+// ─── SUBMIT AICTE MODAL ──────────────────────────────────────────────────────
+export function SubmitAicteModal({ user, close, notify, load }) {
+  const [type, setType] = useState("workshop");
+  const [title, setTitle] = useState("");
+  const [org, setOrg] = useState("");
+  const [date, setDate] = useState("");
+  const [cert, setCert] = useState("");
+
+  const handleSubmit = async () => {
+    if (!title || !org || !date) { notify("Fill all required fields", "error"); return; }
+    try {
+      await api.createAicte({ userId: user._id, type, title, organizer: org, date, certUrl: cert });
+      notify("Activity submitted for admin verification!");
+      close();
+      load();
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Submit AICTE activity</div>
+      <div className="field">
+        <label>Activity type</label>
+        <select className="fi" value={type} onChange={(e) => setType(e.target.value)}>
+          {Object.entries(AICTE_CFG).map(([k, v]) => <option key={k} value={k}>{v.label} (+{v.pts} pts, +{v.credits} cr)</option>)}
+        </select>
+      </div>
+      <div className="field">
+        <label>Title</label>
+        <input className="fi" placeholder="e.g. Smart India Hackathon 2026" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Organizer</label>
+        <input className="fi" placeholder="e.g. AICTE / VTU" value={org} onChange={(e) => setOrg(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Date</label>
+        <input className="fi" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Certificate URL or Upload File</label>
+        <input className="fi" placeholder="Google Drive share link or https://..." value={cert.startsWith("data:") ? "[Local Certificate File Uploaded]" : cert} disabled={cert.startsWith("data:")} onChange={(e) => setCert(e.target.value)} />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+          <label className="btn btn-o btn-sm" style={{ cursor: "pointer", display: "inline-block", margin: 0 }}>
+            Upload from File Manager
+            <input type="file" style={{ display: "none" }} onChange={(e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                setCert(reader.result);
+                notify("Certificate file loaded! 📄");
+              };
+              reader.readAsDataURL(file);
+            }} />
+          </label>
+          {cert && (
+            <button type="button" className="btn-remove-url" style={{ padding: "4px 8px" }} onClick={() => setCert("")}>Remove File</button>
+          )}
+          {cert.startsWith("data:") && <span style={{ fontSize: 12, color: "var(--em)" }}>✓ File loaded</span>}
+        </div>
+        <p className="hint" style={{ fontSize: 11, marginTop: 4, color: "var(--text-muted)" }}>* Drive: Paste share link above. File Manager: Click Upload from File Manager.</p>
+      </div>
+      <button className="btn btn-p" onClick={handleSubmit}>Submit for verification</button>
+    </div>
+  );
+}
+
+// ─── OFFER SKILL MODAL ───────────────────────────────────────────────────────
+export function OfferSkillModal({ user, skills, close, notify, load, loadSkills }) {
+  const [title, setTitle] = useState("");
+  const [skillId, setSkillId] = useState(skills[0]?._id || "custom");
+  const [customName, setCustomName] = useState("");
+  const [customCategory, setCustomCategory] = useState("Technology");
+  const [description, setDescription] = useState("");
+  const [hours, setHours] = useState(1);
+  const [images, setImages] = useState([""]);
+
+  const handleAddImage = () => {
+    setImages([...images, ""]);
+  };
+
+  const handleImageChange = (index, val) => {
+    const updated = [...images];
+    updated[index] = val;
+    setImages(updated);
+  };
+
+  const handleRemoveImage = (index) => {
+    setImages(images.filter((_, i) => i !== index));
+  };
+
+  const handlePost = async () => {
+    if (!title.trim() || !description.trim() || !hours) {
+      notify("Fill all fields", "error");
+      return;
+    }
+    if (skillId === "custom" && !customName.trim()) {
+      notify("Please enter custom skill name", "error");
+      return;
+    }
+
+    const filteredImages = images.filter((img) => img.trim() !== "");
+
+    try {
+      await api.createService({
+        providerId: user._id,
+        skillId,
+        customSkillName: skillId === "custom" ? customName : undefined,
+        customSkillCategory: skillId === "custom" ? customCategory : undefined,
+        title,
+        description,
+        hours,
+        images: filteredImages
+      });
+      notify("Service posted!");
+      close();
+      load();
+      if (skillId === "custom" && loadSkills) {
+        loadSkills();
+      }
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Offer a skill</div>
+      
+      <div className="field">
+        <label>Title</label>
+        <input className="fi" placeholder="e.g. React debugging session" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label>Skill</label>
+        <select className="fi" value={skillId} onChange={(e) => setSkillId(e.target.value)}>
+          {skills.map((s) => <option key={s._id} value={s._id}>{s.name} ({s.category})</option>)}
+          <option value="custom">Custom (Create a new skill)...</option>
+        </select>
+      </div>
+
+      {skillId === "custom" && (
+        <div className="custom-skill-wrap">
+          <div className="field">
+            <label>Custom Skill Name</label>
+            <input className="fi" placeholder="e.g. React Native UI Development" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Category</label>
+            <select className="fi" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)}>
+              <option value="Technology">Technology</option>
+              <option value="Design">Design</option>
+              <option value="Education">Education</option>
+              <option value="Arts">Arts</option>
+              <option value="Health">Health</option>
+              <option value="Business">Business</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div className="field">
+        <label>Description</label>
+        <textarea className="fi" rows={3} placeholder="What will you help with?" value={description} onChange={(e) => setDescription(e.target.value)} style={{ resize: "vertical" }} />
+      </div>
+
+      <div className="field">
+        <label>Duration (hours)</label>
+        <input className="fi" type="number" value={hours} min={0.5} step={0.5} style={{ width: 120 }} onChange={(e) => setHours(parseFloat(e.target.value))} />
+      </div>
+
+      <div className="field">
+        <label>Service Images</label>
+        {images.map((img, i) => (
+          <div key={i} className="image-input-row" style={{ flexDirection: "column", alignItems: "stretch", background: "rgba(255,255,255,0.02)", padding: 8, borderRadius: 8, gap: 6, marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input className="fi" placeholder="Image URL (https://...) or upload below" value={img.startsWith("data:") ? "[Local Image File Loaded]" : img} disabled={img.startsWith("data:")} onChange={(e) => handleImageChange(i, e.target.value)} style={{ margin: 0 }} />
+              {images.length > 1 && (
+                <button type="button" className="btn-remove-url" style={{ padding: "8px 12px" }} onClick={() => handleRemoveImage(i)}>✕</button>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <label className="btn btn-o btn-sm" style={{ cursor: "pointer", display: "inline-block", margin: 0, fontSize: 11, padding: "4px 8px" }}>
+                Upload Image File
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    handleImageChange(i, reader.result);
+                    notify("Image file loaded! 🖼️");
+                  };
+                  reader.readAsDataURL(file);
+                }} />
+              </label>
+              {img && (
+                <button type="button" className="btn-remove-url" style={{ padding: "4px 8px", background: "rgba(239,68,68,0.1)", borderColor: "rgba(239,68,68,0.15)", color: "#ef4444" }} onClick={() => handleImageChange(i, "")}>Clear Image</button>
+              )}
+              {img.startsWith("data:") && <span style={{ fontSize: 11, color: "var(--em)" }}>✓ Image loaded</span>}
+            </div>
+          </div>
+        ))}
+        <button type="button" className="btn-add-url" onClick={handleAddImage}>+ Add another image</button>
+        <p className="hint" style={{ fontSize: 11, marginTop: 4, color: "var(--text-muted)" }}>* Drive: Paste share link. File Manager: Click Upload Image File.</p>
+      </div>
+
+      <button className="btn btn-p" onClick={handlePost}>Post listing</button>
+    </div>
+  );
+}
+
+// ─── SERVICE DETAIL MODAL ────────────────────────────────────────────────────
+export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser }) {
+  const [dt, setDt] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const handleBooking = async () => {
+    if (!dt) { notify("Select a date and time", "error"); return; }
+    if (user.credits < svc.hours) { notify("Not enough credits", "error"); return; }
+    try {
+      await api.createBooking({
+        serviceId: svc._id,
+        providerId: svc.providerId,
+        requesterId: user._id,
+        scheduledStart: dt,
+        hours: svc.hours,
+        notes
+      });
+      notify(`Booking sent to ${prov?.name}!`);
+      close();
+      nav("bookings");
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      {svc.images && svc.images.length > 0 && (
+        <ImageSlider images={svc.images} />
+      )}
+      <div className="mo-t" style={{ marginTop: svc.images && svc.images.length > 0 ? 0 : "" }}>{svc.title}</div>
+      {prov && (
+        <div className="row mb1">
+          <div className="av">{prov.avatar}</div>
+          <div>
+            <div style={{ fontWeight: 700 }}>{prov.name}</div>
+            <div className="text-m" style={{ fontSize: 12 }}>★ {prov.rep || "New"} · {prov.reviews} reviews</div>
+          </div>
+        </div>
+      )}
+      <div className="row mb1">
+        {sk && <span className="tag tb">{sk.category}</span>}
+        <span className="tag tg">⏱ {svc.hours} credit{svc.hours > 1 ? "s" : ""}</span>
+      </div>
+      <p className="text-s" style={{ fontSize: 13, lineHeight: 1.65, marginBottom: 12 }}>{svc.description}</p>
+      
+      {!own ? (
+        <>
+          <hr className="div" />
+          <div className="field">
+            <label>Date & time</label>
+            <input className="fi" type="datetime-local" value={dt} onChange={(e) => setDt(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Notes for provider</label>
+            <textarea className="fi" rows={2} placeholder="What do you need help with?" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ resize: "vertical" }} />
+          </div>
+          <p className="text-m" style={{ fontSize: 12, marginBottom: 10 }}>Cost: {svc.hours} credit{svc.hours > 1 ? "s" : ""} (you have {user.credits})</p>
+          <button className="btn btn-p" onClick={handleBooking}>Confirm booking</button>
+        </>
+      ) : <p className="text-a" style={{ fontSize: 13, marginTop: 8 }}>This is your own listing.</p>}
     </div>
   );
 }

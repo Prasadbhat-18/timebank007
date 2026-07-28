@@ -12,10 +12,24 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // API routes — all prefixed with /api
 app.use("/api", routes);
+
+// Root route explaining this is the backend server and pointing to the frontend application
+app.get("/", (_req, res) => {
+  res.send(`
+    <div style="font-family: sans-serif; text-align: center; padding: 4rem 2rem; background: #080b12; color: #fff; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); padding: 3rem; border-radius: 12px; max-width: 480px;">
+        <h1 style="color: #00c27a; margin-bottom: 1rem; font-size: 28px; font-family: system-ui, sans-serif;">TimeBank API Server</h1>
+        <p style="color: #94a3b8; margin-bottom: 2rem; font-size: 15px; line-height: 1.6;">The API backend is running successfully and connected to MongoDB.</p>
+        <a href="http://localhost:5173/" style="display: inline-block; background: #00c27a; color: #080b12; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; transition: all 0.2s;">Go to TimeBank Web App</a>
+      </div>
+    </div>
+  `);
+});
 
 // Health check
 app.get("/api/health", (_req, res) => {
