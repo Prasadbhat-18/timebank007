@@ -476,7 +476,11 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
               <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: "inline-block", marginTop: 6 }}>View on Polygonscan ↗</a>
             </>
           ) : (
-            <button className="btn btn-g mt1" onClick={connectWallet}>Connect MetaMask</button>
+            chain.isMetaMaskInstalled() ? (
+              <button className="btn btn-g mt1" onClick={connectWallet}>Connect MetaMask</button>
+            ) : (
+              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g mt1">Install MetaMask</a>
+            )
           )}
         </div>
         <div className="card">
@@ -732,7 +736,11 @@ function Wallet({ user, wallet, notify, connectWallet }) {
             <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View on Polygonscan ↗</a>
           </>
         ) : (
-          <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>Connect MetaMask</button>
+          chain.isMetaMaskInstalled() ? (
+            <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>Connect MetaMask</button>
+          ) : (
+            <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }}>Install MetaMask</a>
+          )
         )}
       </motion.div>
 
@@ -1033,7 +1041,11 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
               <div className="btwn mt1"><span className="text-s" style={{ fontSize: 13 }}>POL balance</span><span className="text-g fw7">{parseFloat(wallet.balance).toFixed(4)} POL</span></div>
             </>
           ) : (
-            <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
+            chain.isMetaMaskInstalled() ? (
+              <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
+            ) : (
+              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g btn-sm">Install MetaMask</a>
+            )
           )}
         </div>
       </motion.div>
@@ -1118,7 +1130,11 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
         <motion.div className="card mb2" style={{ borderColor: "var(--em-border)" }} {...fadeUp()}>
           <div className="btwn">
             <div><div style={{ fontWeight: 700 }}>Connect wallet for on-chain verifications</div><div className="text-s" style={{ fontSize: 13 }}>Sign blockchain transactions when approving AICTE activities</div></div>
-            <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
+            {chain.isMetaMaskInstalled() ? (
+              <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
+            ) : (
+              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g btn-sm">Install MetaMask</a>
+            )}
           </div>
         </motion.div>
       )}
