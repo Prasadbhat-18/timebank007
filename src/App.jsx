@@ -93,7 +93,7 @@ export default function App() {
         await api.updateUser(user._id, { wallet: w.address });
         await refreshUser();
       }
-      notify("Wallet connected to Polygon Amoy");
+      notify(w.isInbuilt ? "Inbuilt Web Wallet activated! 🚀" : "MetaMask connected successfully! 🦊");
     } catch (e) {
       notify(e.message || "Failed to connect wallet", "error");
     }
@@ -476,7 +476,12 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 
       <motion.div className="g2" {...fadeUp(0.15)}>
         <div className="card">
-          <div className="btwn mb1"><span className="card-t" style={{ margin: 0 }}>Blockchain wallet</span><span className="tag tt">Polygon Amoy</span></div>
+          <div className="btwn mb1">
+            <span className="card-t" style={{ margin: 0 }}>Blockchain wallet</span>
+            <span className={`tag ${wallet?.isInbuilt ? "tp" : "tt"}`}>
+              {wallet?.isInbuilt ? "Inbuilt Wallet" : "Polygon Amoy"}
+            </span>
+          </div>
           {wallet ? (
             <>
               <div className="chash mt1">{wallet.address}</div>
@@ -484,11 +489,9 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
               <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: "inline-block", marginTop: 6 }}>View on Polygonscan ↗</a>
             </>
           ) : (
-            chain.isMetaMaskInstalled() ? (
-              <button className="btn btn-g mt1" onClick={connectWallet}>Connect MetaMask</button>
-            ) : (
-              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g mt1">Install MetaMask</a>
-            )
+            <button className="btn btn-g mt1" onClick={connectWallet}>
+              {chain.isMetaMaskInstalled() ? "Connect MetaMask" : "Connect Inbuilt Wallet"}
+            </button>
           )}
         </div>
         <div className="card">
@@ -661,7 +664,7 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
     if (wallet && requester?.wallet && provider?.wallet) {
       try {
         notify("Signing blockchain transaction...", "info");
-        const result = await chain.sendCredits(wallet.signer, provider._id === user._id ? requester.wallet : provider.wallet, b.hours);
+        const result = await chain.sendCredits(wallet.signer, provider._id === user._id ? requester.wallet : provider.wallet, b.hours, wallet.isInbuilt);
         txHash = result.txHash;
         blockNumber = result.blockNumber;
         notify("On-chain transfer confirmed!");
@@ -732,7 +735,12 @@ function Wallet({ user, wallet, notify, connectWallet }) {
     <div className="inner">
       <div className="ph"><h1>Wallet</h1><p>Your credits and blockchain activity</p></div>
       <motion.div className="wallet-hero mb2" {...fadeUp(0.1)}>
-        <div className="btwn"><span style={{ fontSize: 13, opacity: 0.7 }}>TimeBank Credits</span><span className="tag" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>Polygon Amoy</span></div>
+        <div className="btwn">
+          <span style={{ fontSize: 13, opacity: 0.7 }}>TimeBank Credits</span>
+          <span className="tag" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
+            {wallet?.isInbuilt ? "Inbuilt Wallet" : "Polygon Amoy"}
+          </span>
+        </div>
         <div className="wallet-num">{user.credits}</div>
         <div style={{ display: "flex", gap: "2rem", fontSize: 13, opacity: 0.7, marginBottom: 12 }}>
           <span>Earned: {user.earned}h</span><span>Spent: {user.spent}h</span>
@@ -744,11 +752,9 @@ function Wallet({ user, wallet, notify, connectWallet }) {
             <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View on Polygonscan ↗</a>
           </>
         ) : (
-          chain.isMetaMaskInstalled() ? (
-            <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>Connect MetaMask</button>
-          ) : (
-            <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }}>Install MetaMask</a>
-          )
+          <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>
+            {chain.isMetaMaskInstalled() ? "Connect MetaMask" : "Connect Inbuilt Wallet"}
+          </button>
         )}
       </motion.div>
 
@@ -1042,18 +1048,16 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
           </div>
         </div>
         <div className="card">
-          <div className="card-t">Wallet</div>
+          <div className="card-t">Wallet ({wallet?.isInbuilt ? "Inbuilt" : "MetaMask"})</div>
           {wallet ? (
             <>
               <div className="chash">{wallet.address}</div>
               <div className="btwn mt1"><span className="text-s" style={{ fontSize: 13 }}>POL balance</span><span className="text-g fw7">{parseFloat(wallet.balance).toFixed(4)} POL</span></div>
             </>
           ) : (
-            chain.isMetaMaskInstalled() ? (
-              <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
-            ) : (
-              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g btn-sm">Install MetaMask</a>
-            )
+            <button className="btn btn-g btn-sm" onClick={connectWallet}>
+              {chain.isMetaMaskInstalled() ? "Connect MetaMask" : "Connect Inbuilt Wallet"}
+            </button>
           )}
         </div>
       </motion.div>
@@ -1106,7 +1110,7 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
       if (student?.wallet) {
         try {
           notify("Signing verification transaction...", "info");
-          const result = await chain.sendCredits(wallet.signer, student.wallet, a.credits);
+          const result = await chain.sendCredits(wallet.signer, student.wallet, a.credits, wallet.isInbuilt);
           txHash = result.txHash;
           blockNumber = result.blockNumber;
         } catch (e) { notify("Blockchain tx skipped", "warning"); }
@@ -1138,11 +1142,9 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
         <motion.div className="card mb2" style={{ borderColor: "var(--em-border)" }} {...fadeUp()}>
           <div className="btwn">
             <div><div style={{ fontWeight: 700 }}>Connect wallet for on-chain verifications</div><div className="text-s" style={{ fontSize: 13 }}>Sign blockchain transactions when approving AICTE activities</div></div>
-            {chain.isMetaMaskInstalled() ? (
-              <button className="btn btn-g btn-sm" onClick={connectWallet}>Connect MetaMask</button>
-            ) : (
-              <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="btn btn-g btn-sm">Install MetaMask</a>
-            )}
+            <button className="btn btn-g btn-sm" onClick={connectWallet}>
+              {chain.isMetaMaskInstalled() ? "Connect MetaMask" : "Connect Inbuilt Wallet"}
+            </button>
           </div>
         </motion.div>
       )}
