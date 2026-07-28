@@ -254,7 +254,8 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div style={{ minHeight: "100vh", position: "relative" }}>
+      {(page === "landing" || page === "auth") && <BlockchainBg isBlurred={page === "auth"} />}
       <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} />
       <NotifStack notifs={notifs} />
       <AnimatePresence>
@@ -262,7 +263,7 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        <motion.div key={page} variants={pageVariants} initial="initial" animate="animate" exit="exit">
+        <motion.div key={page} variants={pageVariants} initial="initial" animate="animate" exit="exit" style={{ position: "relative", zIndex: 1 }}>
           {page === "landing" && <Landing nav={nav} />}
           {page === "auth" && <Auth doLogin={doLogin} doRegister={doRegister} doAdminLogin={doAdminLogin} clockAngle={clockAngle} />}
           {page === "dashboard" && user && <Dashboard {...pageProps} />}
@@ -342,31 +343,551 @@ function NotifStack({ notifs }) {
   );
 }
 
-// ─── MODAL ───────────────────────────────────────────────────────────────────
-function Modal({ content, close }) {
-  const renderedContent = typeof content === "function"
-    ? content(close)
-    : (isValidElement(content) ? cloneElement(content, { close }) : content);
+// ─── BLOCKCHAIN NETWORK CANVAS VISUALIZATION ─────────────────────────────────
+export function BlockchainBg({ isBlurred }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId;
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    // Responsive setup
+    const isMobile = width < 768;
+    const nodeCount = isMobile ? 8 : 26;
+    const connectionDist = isMobile ? 0 : 135;
+
+    // Prefers reduced motion
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Create isolated nodes
+    const nodes = [];
+    const names = [
+      "P2P Node", "Credits Ledger", "AICTE Verifier", "Smart Contract", 
+      "Alice", "Bob", "Charlie", "Dev", "Priya", "Aman", "Siddharth",
+      "Spanish Class", "React Mentorship", "UI Design Core", "Blockchain DB"
+    ];
+
+    for (let i = 0; i < nodeCount; i++) {
+      nodes.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+        r: Math.random() * 3 + 2,
+        label: i < names.length ? names[i] : `Node #${i}`,
+        type: i % 4 === 0 ? "contract" : "user",
+      });
+    }
+
+    // Active credit transfer transactions
+    const txParticles = [];
+    const skillList = ["Coding Tutoring", "UX Prototype", "Graphic Designing", "Guitar Lessons", "Language Help"];
+
+    const addRandomTx = () => {
+      if (nodes.length < 2) return;
+      const fromIdx = Math.floor(Math.random() * nodes.length);
+      let toIdx = Math.floor(Math.random() * nodes.length);
+      while (toIdx === fromIdx) {
+        toIdx = Math.floor(Math.random() * nodes.length);
+      }
+      const skill = skillList[Math.floor(Math.random() * skillList.length)];
+      const credits = Math.floor(Math.random() * 3) + 1;
+
+      txParticles.push({
+        from: nodes[fromIdx],
+        to: nodes[toIdx],
+        progress: 0,
+        speed: 0.005 + Math.random() * 0.005,
+        skill,
+        credits,
+      });
+    };
+
+    // Spawn regular transactions
+    const txInterval = setInterval(() => {
+      if (txParticles.length < 5) {
+        addRandomTx();
+      }
+    }, 4500);
+
+    // Floating notifications
+    const alerts = [];
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      // 1. Draw subtle background data grid
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.015)";
+      ctx.lineWidth = 1;
+      const gridSize = 60;
+      for (let x = 0; x < width; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      // 2. Draw connections (ambient network mesh)
+      if (connectionDist > 0) {
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const dx = nodes[i].x - nodes[j].x;
+            const dy = nodes[i].y - nodes[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < connectionDist) {
+              const alpha = (1 - dist / connectionDist) * 0.07;
+              ctx.strokeStyle = `rgba(16, 185, 129, ${alpha})`;
+              ctx.beginPath();
+              ctx.moveTo(nodes[i].x, nodes[i].y);
+              ctx.lineTo(nodes[j].x, nodes[j].y);
+              ctx.stroke();
+            }
+          }
+        }
+      }
+
+      // 3. Draw nodes
+      nodes.forEach((n) => {
+        // Draw glow aura
+        ctx.fillStyle = n.type === "contract" ? "rgba(139, 92, 246, 0.12)" : "rgba(16, 185, 129, 0.12)";
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw core node
+        ctx.fillStyle = n.type === "contract" ? "#8b5cf6" : "#10b981";
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Label
+        ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+        ctx.font = "9px 'Space Grotesk', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(n.label, n.x, n.y - n.r - 8);
+
+        // Move nodes (only if reduced motion is disabled)
+        if (!prefersReducedMotion) {
+          n.x += n.vx;
+          n.y += n.vy;
+
+          // Bounce walls
+          if (n.x < 0 || n.x > width) n.vx *= -1;
+          if (n.y < 0 || n.y > height) n.vy *= -1;
+        }
+      });
+
+      // 4. Draw transaction credit flow particles
+      if (!prefersReducedMotion) {
+        for (let i = txParticles.length - 1; i >= 0; i--) {
+          const p = txParticles[i];
+          p.progress += p.speed;
+
+          if (p.progress >= 1) {
+            // Transaction complete: spawn floating text alert at destination node
+            alerts.push({
+              x: p.to.x,
+              y: p.to.y - 15,
+              text: `+${p.credits} cr · ${p.skill}`,
+              opacity: 1,
+              life: 1.0,
+            });
+            txParticles.splice(i, 1);
+            continue;
+          }
+
+          // Calculate particle coordinates along the path
+          const currX = p.from.x + (p.to.x - p.from.x) * p.progress;
+          const currY = p.from.y + (p.to.y - p.from.y) * p.progress;
+
+          // Particle draw
+          ctx.fillStyle = "#34d399";
+          ctx.beginPath();
+          ctx.arc(currX, currY, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Tiny credits identifier text next to particle
+          ctx.fillStyle = "rgba(16, 185, 129, 0.75)";
+          ctx.font = "8px 'Space Grotesk', monospace";
+          ctx.fillText(`+${p.credits} cr`, currX, currY - 6);
+        }
+      }
+
+      // 5. Draw floating notifications (alerts)
+      for (let i = alerts.length - 1; i >= 0; i--) {
+        const a = alerts[i];
+        a.y -= 0.6; // float up
+        a.life -= 0.012;
+        a.opacity = Math.max(0, a.life);
+
+        if (a.life <= 0) {
+          alerts.splice(i, 1);
+          continue;
+        }
+
+        ctx.fillStyle = `rgba(52, 211, 153, ${a.opacity})`;
+        ctx.font = "bold 10px 'Urbanist', sans-serif";
+        ctx.fillText(a.text, a.x, a.y);
+      }
+
+      animId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    // Window resize handler
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    };
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      clearInterval(txInterval);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
   return (
-    <motion.div className="mo" onClick={(e) => e.target.classList.contains("mo") && close()}
-      variants={overlayVariants} initial="initial" animate="animate" exit="exit">
-      <motion.div className="mo-box" variants={modalVariants} initial="initial" animate="animate" exit="exit">
-        {renderedContent}
-      </motion.div>
-    </motion.div>
+    <canvas
+      ref={canvasRef}
+      className={`blockchain-canvas${isBlurred ? " blurred" : ""}`}
+    />
+  );
+}
+
+// ─── INTERACTIVE FEATURE SHOWCASE ────────────────────────────────────────────
+export function FeatureShowcase() {
+  const [activeTab, setActiveTab] = useState(0);
+
+  const features = [
+    {
+      title: "Time Credit Wallet",
+      icon: <ClockIcon size={16} color="var(--em)" />,
+      desc: "Track credit balances, earnings timeline, and view cryptographic logs in real-time.",
+      mockup: (
+        <div className="showcase-mock-wallet">
+          <div className="showcase-mock-grid">
+            <div className="showcase-mock-box">
+              <div className="showcase-mock-title">Time Credit Balance</div>
+              <div className="showcase-mock-val" style={{ color: "var(--em)" }}>14.50 hrs</div>
+            </div>
+            <div className="showcase-mock-box">
+              <div className="showcase-mock-title">Trust Tier</div>
+              <div className="showcase-mock-val" style={{ color: "var(--purple)" }}>Gold</div>
+            </div>
+          </div>
+          <div style={{ height: 110, position: "relative", marginTop: 4 }}>
+            <svg viewBox="0 0 400 100" width="100%" height="100%" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--em)" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="var(--em)" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
+              <path d="M 0 80 Q 80 40 160 65 T 320 20 T 400 35 L 400 100 L 0 100 Z" fill="url(#glow)" />
+              <path d="M 0 80 Q 80 40 160 65 T 320 20 T 400 35" fill="none" stroke="var(--em)" strokeWidth="2.5" />
+              <circle cx="320" cy="20" r="5" fill="#fff" stroke="var(--em)" strokeWidth="2" />
+            </svg>
+          </div>
+          <div className="showcase-mock-tx-list">
+            <div className="showcase-mock-tx">
+              <span>Coding Session (from Prof. Dev)</span>
+              <span className="text-g fw7">+2.0 cr</span>
+            </div>
+            <div className="showcase-mock-tx">
+              <span>Spanish Mentorship (to Alice)</span>
+              <span className="text-red fw7">-1.5 cr</span>
+            </div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Skill Exchange Flow",
+      icon: <ChainIcon size={16} color="var(--purple)" />,
+      desc: "Direct P2P trading where 1 hour of your skills matches exactly 1 credit hour.",
+      mockup: (
+        <div>
+          <div className="showcase-mock-flow">
+            <div className="showcase-mock-user">
+              <div className="av" style={{ background: "var(--purple-bg)", color: "var(--purple)", border: "1px solid var(--purple)" }}>AP</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>Aman</div>
+              <div className="tag tp" style={{ fontSize: 9, padding: "2px 8px" }}>Wants coding</div>
+            </div>
+            
+            <div className="showcase-mock-arrow"></div>
+            
+            <div className="showcase-mock-user">
+              <div className="av" style={{ background: "var(--em-bg)", color: "var(--em)", border: "1px solid var(--em)" }}>PD</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>Priya</div>
+              <div className="tag tg" style={{ fontSize: 9, padding: "2px 8px" }}>Offers React</div>
+            </div>
+          </div>
+          <div style={{ textAlign: "center", marginTop: 20 }}>
+            <span className="tag tg" style={{ padding: "6px 14px" }}>On-Chain Session Confirmed · Block #4562015 mined ✓</span>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "AICTE Points & Verification",
+      icon: <AicteIcon size={16} color="var(--blue)" />,
+      desc: "Academically integrated activities verified by administrators to unlock college points.",
+      mockup: (
+        <div>
+          <div className="showcase-mock-tx-list" style={{ gap: 10 }}>
+            <div className="showcase-mock-tx" style={{ borderLeft: "3px solid var(--em)", background: "rgba(16, 185, 129, 0.02)" }}>
+              <div>
+                <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Smart India Hackathon 2026</strong>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>VTU VT4812 · Student Submission</span>
+              </div>
+              <span className="tag tg">Approved</span>
+            </div>
+            <div className="showcase-mock-tx" style={{ borderLeft: "3px solid var(--purple)" }}>
+              <div>
+                <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Web Development Workshop</strong>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>Organizer: IEEE Club</span>
+              </div>
+              <span className="tag tp">Pending Approval</span>
+            </div>
+          </div>
+          <div className="row mt2" style={{ justifyContent: "space-between", background: "rgba(255,255,255,0.02)", padding: "12px 18px", borderRadius: 10, border: "1px solid var(--border)" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>AICTE POINTS ACQUIRED</div>
+              <div style={{ fontFamily: "Space Grotesk", fontSize: 20, fontWeight: 800, color: "var(--blue)" }}>180 Points</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>BONUS CREDITS</div>
+              <div style={{ fontFamily: "Space Grotesk", fontSize: 20, fontWeight: 800, color: "var(--em)" }}>+4.0 cr</div>
+            </div>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Direct Messaging & Chat",
+      icon: <ChatIcon size={16} color="var(--teal)" />,
+      desc: "Negotiate schedules, plan locations, and communicate directly through clean chat threads.",
+      mockup: (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 8 }}>
+          <div className="bbl bbl-t" style={{ alignSelf: "flex-start", maxWidth: "80%", padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", fontSize: 12.5 }}>
+            Hello Aman! I can help you with your React UI bugs tomorrow evening.
+          </div>
+          <div className="bbl bbl-m" style={{ alignSelf: "flex-end", maxWidth: "80%", padding: "10px 14px", borderRadius: 12, background: "var(--em)", color: "var(--bg)", fontSize: 12.5, fontWeight: 600 }}>
+            That's awesome! I have 2 credits to trade for your time.
+          </div>
+          <div className="bbl bbl-t" style={{ alignSelf: "flex-start", maxWidth: "80%", padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", fontSize: 12.5 }}>
+            Perfect, I've accepted your booking request. Talk tomorrow!
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Reputation & Safety Shield",
+      icon: <SosIcon size={16} color="var(--red)" />,
+      desc: "Verified student trust indexes, double review loops, and emergency SOS safeguard options.",
+      mockup: (
+        <div>
+          <div className="row mb2" style={{ background: "rgba(16, 185, 129, 0.03)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: 12, padding: "12px 18px", gap: 14 }}>
+            <div className="av" style={{ background: "var(--em)", color: "var(--bg)", fontSize: 14, width: 44, height: 44 }}>98%</div>
+            <div>
+              <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Trust & Safety Verification</strong>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Highly Rated Member · 12 successful reviews</span>
+            </div>
+          </div>
+          <div className="row mb2" style={{ background: "rgba(239, 68, 68, 0.03)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: 12, padding: "12px 18px", gap: 14 }}>
+            <div className="av" style={{ background: "var(--red)", color: "#fff", fontSize: 14, width: 44, height: 44 }}>🆘</div>
+            <div>
+              <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Safety Shield Active</strong>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Emergency SOS triggers notification broadcast instantly.</span>
+            </div>
+          </div>
+        </div>
+      )
+    }
+  ];
+
+  return (
+    <div className="showcase-wrap">
+      <div className="showcase-tabs">
+        {features.map((f, i) => (
+          <button key={f.title} className={`showcase-tab${activeTab === i ? " active" : ""}`} onClick={() => setActiveTab(i)}>
+            <div className="showcase-tab-title">
+              {f.icon}
+              {f.title}
+            </div>
+            <div className="showcase-tab-desc">{f.desc}</div>
+          </button>
+        ))}
+      </div>
+      <div className="showcase-content">
+        <AnimatePresence mode="wait">
+          <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.22 }}>
+            {features[activeTab].mockup}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ─── DASHBOARD REAL-TIME CREDIT TIMELINE CHART (SVG BASED) ───────────────────
+export function CreditTimelineChart({ txs, userId }) {
+  if (!txs || txs.length === 0) {
+    return <div className="text-m" style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>No transaction history to plot.</div>;
+  }
+
+  // Sort transactions chronologically
+  const sorted = [...txs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  let bal = 2.0;
+  const balancePoints = [bal];
+
+  sorted.forEach((tx) => {
+    const inc = tx.toId === userId;
+    if (inc) {
+      bal += tx.amount;
+    } else {
+      bal = Math.max(0, bal - tx.amount);
+    }
+    balancePoints.push(bal);
+  });
+
+  const width = 450;
+  const height = 120;
+  const padding = 15;
+
+  const maxVal = Math.max(...balancePoints, 5);
+  const minVal = 0;
+  const pointsCount = balancePoints.length;
+
+  const coordinates = balancePoints.map((val, idx) => {
+    const x = padding + (idx / (pointsCount - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - ((val - minVal) / (maxVal - minVal || 1)) * (height - padding * 2);
+    return { x, y, val };
+  });
+
+  let pathD = "";
+  coordinates.forEach((pt, idx) => {
+    if (idx === 0) {
+      pathD = `M ${pt.x} ${pt.y}`;
+    } else {
+      const prev = coordinates[idx - 1];
+      const cx = prev.x + (pt.x - prev.x) / 2;
+      pathD += ` C ${cx} ${prev.y}, ${cx} ${pt.y}, ${pt.x} ${pt.y}`;
+    }
+  });
+
+  let areaD = "";
+  if (coordinates.length > 0) {
+    areaD = `${pathD} L ${coordinates[coordinates.length - 1].x} ${height - padding} L ${coordinates[0].x} ${height - padding} Z`;
+  }
+
+  return (
+    <div className="chart-container">
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="chartGlow" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--em)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--em)" stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+        
+        <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="rgba(255,255,255,0.02)" />
+        <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="rgba(255,255,255,0.02)" />
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.05)" />
+
+        {areaD && <path d={areaD} fill="url(#chartGlow)" />}
+        {pathD && <path d={pathD} fill="none" stroke="var(--em)" strokeWidth="2.5" />}
+
+        {coordinates.map((pt, idx) => (
+          <g key={idx}>
+            <circle cx={pt.x} cy={pt.y} r={idx === coordinates.length - 1 ? 5 : 3.5} fill={idx === coordinates.length - 1 ? "#fff" : "var(--em)"} stroke="var(--em)" strokeWidth={1.5} />
+            {idx === coordinates.length - 1 && (
+              <text x={pt.x - 20} y={pt.y - 12} fill="#fff" fontSize="9" fontWeight="bold" fontFamily="'Space Grotesk', monospace">
+                {pt.val.toFixed(1)}h
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// ─── DASHBOARD CONCENTRIC EARNED VS SPENT GAUGE (SVG BASED) ──────────────────
+export function EarnedSpentGauge({ user }) {
+  const earned = user.earned || 0;
+  const spent = user.spent || 0;
+  
+  const radiusOuter = 40;
+  const circOuter = 2 * Math.PI * radiusOuter;
+  const valOuter = Math.min(earned, 20);
+  const strokeDashOuter = circOuter - (valOuter / 20) * circOuter;
+
+  const radiusInner = 30;
+  const circInner = 2 * Math.PI * radiusInner;
+  const valInner = Math.min(spent, 20);
+  const strokeDashInner = circInner - (valInner / 20) * circInner;
+
+  return (
+    <div style={{ display: "flex", gap: "1.5rem", alignItems: "center", justifyContent: "space-around", minHeight: 140 }}>
+      <svg className="gauge-svg" viewBox="0 0 100 100">
+        <circle className="gauge-bg" cx="50" cy="50" r={radiusOuter} fill="none" strokeWidth="6" />
+        <circle className="gauge-bg" cx="50" cy="50" r={radiusInner} fill="none" strokeWidth="6" />
+
+        <circle
+          className="gauge-fill-earned"
+          cx="50" cy="50" r={radiusOuter}
+          fill="none" strokeWidth="6"
+          strokeDasharray={circOuter}
+          strokeDashoffset={strokeDashOuter}
+          transform="rotate(-90 50 50)"
+        />
+
+        <circle
+          className="gauge-fill-spent"
+          cx="50" cy="50" r={radiusInner}
+          fill="none" strokeWidth="6"
+          strokeDasharray={circInner}
+          strokeDashoffset={strokeDashInner}
+          transform="rotate(-90 50 50)"
+        />
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: 13 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, background: "var(--em)", borderRadius: "50%" }}></span>
+          <span style={{ color: "var(--text-secondary)" }}>Hours Earned:</span>
+          <strong style={{ color: "#fff" }}>{earned} hrs</strong>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, background: "var(--red)", borderRadius: "50%" }}></span>
+          <span style={{ color: "var(--text-secondary)" }}>Hours Spent:</span>
+          <strong style={{ color: "#fff" }}>{spent} hrs</strong>
+        </div>
+      </div>
+    </div>
   );
 }
 
 // ─── LANDING ─────────────────────────────────────────────────────────────────
 function Landing({ nav }) {
-  const feats = [
-    { icon: <ClockIcon size={20} color="var(--em)" />, bg: "var(--em-bg)", t: "Time credit economy", d: "1 hour of any skill equals 1 credit. Fair, transparent, and universally valued across the platform." },
-    { icon: <ChainIcon size={20} color="var(--purple)" />, bg: "var(--purple-bg)", t: "Blockchain verified", d: "Every credit transfer is recorded on Polygon Amoy as an immutable, verifiable transaction." },
-    { icon: <AicteIcon size={20} color="var(--blue)" />, bg: "var(--blue-bg)", t: "AICTE recognition", d: "Workshops, hackathons, and internships earn bonus credits with AICTE point tracking." },
-    { icon: <ChatIcon size={20} color="var(--teal)" />, bg: "var(--teal-bg)", t: "Direct messaging", d: "Coordinate sessions, share resources, and communicate directly with your skill partner." },
-    { icon: <BookingIcon size={20} color="var(--amber)" />, bg: "var(--amber-bg)", t: "Session booking", d: "Schedule, confirm, and complete sessions with a structured workflow and blockchain receipt." },
-    { icon: <SosIcon size={20} color="var(--red)" />, bg: "var(--red-bg)", t: "Emergency SOS", d: "Alert your emergency contacts with one tap. Safety is built into the platform." },
-  ];
   const howSteps = [
     { n: 1, t: "Create your account", d: "Sign up with your email, set up your profile, and receive 2 starter credits." },
     { n: 2, t: "List your expertise", d: "Post the skills you can offer — teaching, coding, design, music, or anything else." },
@@ -375,56 +896,46 @@ function Landing({ nav }) {
   ];
 
   return (
-    <div>
-      <div className="hero">
-        {[600, 420, 270].map((s, i) => (
-          <div key={s} className="ring" style={{ width: s, height: s, top: "50%", left: "50%", animationDelay: `${i * 0.5}s` }} />
-        ))}
+    <div style={{ position: "relative", zIndex: 1 }}>
+      <div className="hero" style={{ background: "transparent" }}>
         <motion.div className="hero-content" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}>
           <motion.div className="hero-eyebrow" {...fadeUp(0.1)}>
             <span style={{ width: 6, height: 6, background: "#00c27a", borderRadius: "50%" }} />
-            Polygon Amoy · AICTE integrated · MongoDB backed
+            P2P Skill Exchange · Polygon Amoy Verified · Real-Time Time Economy
           </motion.div>
           <motion.h1 className="hero-title" {...fadeUp(0.2)}>
-            Trade skills,<br />not <span>money</span>
+            Where your time<br />becomes <span>currency</span>
           </motion.h1>
           <motion.p className="hero-sub" {...fadeUp(0.3)}>
-            TimeBank is a peer-to-peer skill exchange platform where 1 hour of your expertise equals 1 time credit — recorded on blockchain and recognized by AICTE.
+            TimeBank is a decentralized peer-to-peer network where 1 hour of your skills matches exactly 1 time credit. Share your expertise, learn something new, and track verifications on the ledger.
           </motion.p>
           <motion.div className="hero-btns" {...fadeUp(0.4)}>
             <button className="btn-hp btn-hp-p" onClick={() => nav("auth")}>Start exchanging</button>
             <button className="btn-hp btn-hp-s" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>
-              How it works ↓
+              Explore features ↓
             </button>
           </motion.div>
+          
           <motion.div className="hero-stats" {...fadeUp(0.5)}>
-            {[{ n: "1 hr", l: "= 1 credit always" }, { n: "Polygon", l: "Amoy testnet" }, { n: "AICTE", l: "Points system" }, { n: "MongoDB", l: "Real-time data" }].map((s) => (
+            {[{ n: "1 hr", l: "= 1 credit always" }, { n: "Polygon", l: "Secure testnet logs" }, { n: "AICTE", l: "Integrated recognition" }, { n: "100% P2P", l: "Direct messaging" }].map((s) => (
               <div key={s.l}><div className="hstat-num">{s.n}</div><div className="hstat-lbl">{s.l}</div></div>
             ))}
           </motion.div>
         </motion.div>
       </div>
 
-      <div className="feat-section" id="features">
-        <div className="feat-inner">
-          <motion.div {...fadeUp()} viewport={{ once: true }} whileInView="animate" initial="initial">
-            <div className="sec-eyebrow">Features</div>
-            <h2 className="sec-title">Everything you need to exchange skills</h2>
-            <p className="sec-sub">From booking to blockchain verification — TimeBank handles the complete workflow so you can focus on learning and teaching.</p>
-          </motion.div>
-          <motion.div className="feat-grid" variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }}>
-            {feats.map((f, i) => (
-              <motion.div key={f.t} className="feat-card" variants={fadeUp(i * 0.05)} {...cardHover}>
-                <div className="feat-icon" style={{ background: f.bg }}>{f.icon}</div>
-                <div className="feat-ct">{f.t}</div>
-                <div className="feat-cd">{f.d}</div>
-              </motion.div>
-            ))}
-          </motion.div>
+      <div className="feat-section" id="features" style={{ background: "rgba(12, 15, 23, 0.6)", backdropFilter: "blur(8px)" }}>
+        <div className="inner" style={{ maxWidth: 1040, margin: "0 auto", padding: "4rem 2rem" }}>
+          <div className="showcase-title-area">
+            <div className="sec-eyebrow">Interactive Showcase</div>
+            <h2 className="sec-title">Explore TimeBank's Ecosystem</h2>
+            <p className="sec-sub" style={{ margin: "0.5rem auto 0", maxWidth: 600 }}>Explore our decentralized network features and watch the live mock ledger visualisations in action.</p>
+          </div>
+          <FeatureShowcase />
         </div>
       </div>
 
-      <div className="how-section">
+      <div className="how-section" style={{ background: "transparent" }}>
         <div className="how-inner">
           <motion.div {...fadeUp()} viewport={{ once: true }} whileInView="animate" initial="initial">
             <div className="sec-eyebrow">How it works</div>
@@ -442,7 +953,7 @@ function Landing({ nav }) {
         </div>
       </div>
 
-      <div className="cta-band">
+      <div className="cta-band" style={{ background: "rgba(12, 15, 23, 0.6)", borderTop: "1px solid var(--border)" }}>
         <motion.div {...fadeUp()} viewport={{ once: true }} whileInView="animate" initial="initial">
           <h2>Ready to trade your first hour?</h2>
           <p>Join TimeBank — the blockchain-verified skill economy for students and professionals.</p>
@@ -450,7 +961,7 @@ function Landing({ nav }) {
         </motion.div>
       </div>
 
-      <footer className="footer">
+      <footer className="footer" style={{ background: "rgba(5, 7, 12, 0.95)" }}>
         <div className="footer-inner">
           <p>TimeBank © {new Date().getFullYear()} · Polygon Amoy · AICTE integrated</p>
         </div>
@@ -461,10 +972,13 @@ function Landing({ nav }) {
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
-  const [tab, setTab] = useState("login");
+  const [tab, setTab] = useState("login"); // login, register, forgot
   const [le, setLe] = useState(""), [lp, setLp] = useState("");
   const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState("");
   const [ae, setAe] = useState("admin@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const cx = 34, cy = 34;
   const hx = cx + 14 * Math.sin((clockAngle.h * Math.PI) / 180);
@@ -472,58 +986,141 @@ function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
   const mx = cx + 18 * Math.sin((clockAngle.m * Math.PI) / 180);
   const my = cy - 18 * Math.cos((clockAngle.m * Math.PI) / 180);
 
+  const handleLoginSubmit = async () => {
+    if (!le || !lp) { setError("Fill all credentials"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      await doLogin(le, lp);
+    } catch (e) {
+      setError(e.message || "Failed to sign in");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async () => {
+    if (!rn || !re || rp.length < 6) { setError("Full name, email and password (min 6 chars) are required"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      await doRegister(rn, re, rp, rb);
+    } catch (e) {
+      setError(e.message || "Failed to create account");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdminSubmit = async () => {
+    if (!ae || !ap) { setError("Fill admin credentials"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      await doAdminLogin(ae, ap);
+    } catch (e) {
+      setError(e.message || "Admin login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="auth-wrap">
-      <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start" }}>
+    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2 }}>
+      <div style={{ display: "flex", gap: "2.5rem", flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start", width: "100%", maxWidth: 900, margin: "0 auto" }}>
+        
         {/* User Auth Card */}
-        <motion.div className="auth-card" {...fadeUp(0.1)}>
+        <motion.div className="auth-card" {...fadeUp(0.1)} style={{ flex: 1, minWidth: 320, maxWidth: 440 }}>
           <div className="clock-wrap">
             <svg className="clock-svg" viewBox="0 0 68 68" fill="none">
-              <circle cx="34" cy="34" r="30" stroke="#00c27a" strokeWidth="2" fill="#f0faf5" />
+              <circle cx="34" cy="34" r="30" stroke="#00c27a" strokeWidth="2" fill="none" />
               {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((a) => (
                 <line key={a} x1={34 + 28 * Math.sin((a * Math.PI) / 180)} y1={34 - 28 * Math.cos((a * Math.PI) / 180)}
                   x2={34 + 24 * Math.sin((a * Math.PI) / 180)} y2={34 - 24 * Math.cos((a * Math.PI) / 180)}
-                  stroke="rgba(0,194,122,0.25)" strokeWidth="1" />
+                  stroke="rgba(0,194,122,0.2)" strokeWidth="1.5" />
               ))}
               <line x1="34" y1="34" x2={hx} y2={hy} stroke="#00c27a" strokeWidth="2.5" strokeLinecap="round" />
               <line x1="34" y1="34" x2={mx} y2={my} stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="34" cy="34" r="2.5" fill="#00c27a" />
             </svg>
           </div>
-          <h2 className="auth-title">TimeBank</h2>
-          <p className="auth-sub">Skill exchange · Blockchain verified · AICTE integrated</p>
-          <div className="auth-tabs">
-            <button className={`atab${tab === "login" ? " on" : ""}`} onClick={() => setTab("login")}>Sign in</button>
-            <button className={`atab${tab === "register" ? " on" : ""}`} onClick={() => setTab("register")}>Sign up</button>
-          </div>
-          {tab === "login" ? (
+          
+          <h2 className="auth-title" style={{ fontSize: 26, letterSpacing: "-0.03em" }}>TimeBank</h2>
+          <p className="auth-sub" style={{ marginBottom: "1.5rem" }}>P2P Skill Exchange · Polygon Verified</p>
+          
+          {error && (
+            <div style={{ color: "var(--red)", background: "var(--red-bg)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: "1.25rem", textAlign: "center" }}>
+              {error}
+            </div>
+          )}
+
+          {tab !== "forgot" && (
+            <div className="auth-tabs">
+              <button className={`atab${tab === "login" ? " on" : ""}`} onClick={() => { setTab("login"); setError(""); }}>Sign in</button>
+              <button className={`atab${tab === "register" ? " on" : ""}`} onClick={() => { setTab("register"); setError(""); }}>Sign up</button>
+            </div>
+          )}
+
+          {tab === "login" && (
             <>
               <div className="field"><label>Email</label><input className="fi" value={le} onChange={(e) => setLe(e.target.value)} placeholder="your@email.com" /></div>
-              <div className="field"><label>Password</label><input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && doLogin(le, lp)} /></div>
-              <button className="btn btn-p" onClick={() => doLogin(le, lp)}>Sign in</button>
+              <div className="field"><label>Password</label><input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} /></div>
+              
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.25rem" }}>
+                <button type="button" style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }} onClick={() => { setTab("forgot"); setError(""); }}>
+                  Forgot Password?
+                </button>
+              </div>
+
+              <button className="btn btn-p" onClick={handleLoginSubmit} disabled={loading}>
+                {loading ? "Signing in..." : "Sign in"}
+              </button>
             </>
-          ) : (
+          )}
+
+          {tab === "register" && (
             <>
               <div className="field"><label>Full name</label><input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="Your full name" /></div>
               <div className="field"><label>Email</label><input className="fi" type="email" value={re} onChange={(e) => setRe(e.target.value)} placeholder="your@email.com" /></div>
               <div className="field"><label>Password</label><input className="fi" type="password" value={rp} onChange={(e) => setRp(e.target.value)} placeholder="Min 6 characters" /></div>
               <div className="field"><label>Bio</label><input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Brief intro..." /></div>
-              <button className="btn btn-p" onClick={() => { if (!rn || !re || rp.length < 6) return; doRegister(rn, re, rp, rb); }}>Create account</button>
+              <button className="btn btn-p" onClick={handleRegisterSubmit} disabled={loading}>
+                {loading ? "Creating account..." : "Create account"}
+              </button>
+            </>
+          )}
+
+          {tab === "forgot" && (
+            <>
+              <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                  Enter your email to request a reset signature.
+                </span>
+              </div>
+              <div className="field"><label>Email Address</label><input className="fi" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="your@email.com" /></div>
+              <button className="btn btn-p" onClick={() => { setError(""); alert("Reset link dispatched to " + forgotEmail); setTab("login"); }} style={{ marginBottom: "1rem" }}>
+                Reset Password
+              </button>
+              <button className="btn btn-o" onClick={() => { setTab("login"); setError(""); }} style={{ width: "100%", justifyContent: "center" }}>
+                Back to Sign In
+              </button>
             </>
           )}
         </motion.div>
 
         {/* Admin Login Card */}
-        <motion.div className="auth-card" style={{ maxWidth: 340 }} {...fadeUp(0.2)}>
+        <motion.div className="auth-card" style={{ width: "100%", maxWidth: 340 }} {...fadeUp(0.2)}>
           <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
-            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#1a1a2e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 20 }}>🔐</div>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--purple-bg)", color: "var(--purple)", border: "1px solid rgba(139,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 18 }}>🔐</div>
             <h2 className="auth-title" style={{ fontSize: 18 }}>Admin Portal</h2>
-            <p className="auth-sub">Platform administration access</p>
+            <p className="auth-sub" style={{ fontSize: 12 }}>Platform administrative access</p>
           </div>
           <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="admin@timebank.com" /></div>
-          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && doAdminLogin(ae, ap)} /></div>
-          <button className="btn btn-p" style={{ background: "#1a1a2e" }} onClick={() => doAdminLogin(ae, ap)}>Sign in as Admin</button>
-          <p className="hint">Default: admin@timebank.com / admin@123</p>
+          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
+          <button className="btn btn-p" style={{ background: "rgba(139,92,246,0.15)", border: "1px solid var(--purple)", color: "#fff", boxShadow: "none" }} onClick={handleAdminSubmit} disabled={loading}>
+            {loading ? "Authenticating..." : "Sign in as Admin"}
+          </button>
+          <p className="hint" style={{ fontSize: 10.5 }}>Default credentials: admin@timebank.com / admin@123</p>
         </motion.div>
       </div>
     </div>
@@ -579,7 +1176,19 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
         ))}
       </motion.div>
 
-      <motion.div className="g2" {...fadeUp(0.15)}>
+      {/* Analytics Grid: Real-Time Charts */}
+      <motion.div className="g2" {...fadeUp(0.12)}>
+        <div className="card">
+          <div className="card-t">Credit balance timeline</div>
+          <CreditTimelineChart txs={txs} userId={user._id} />
+        </div>
+        <div className="card">
+          <div className="card-t">Time credits exchange stats</div>
+          <EarnedSpentGauge user={user} />
+        </div>
+      </motion.div>
+
+      <motion.div className="g2" {...fadeUp(0.18)}>
         <div className="card">
           <div className="btwn mb1">
             <span className="card-t" style={{ margin: 0 }}>Blockchain wallet</span>
@@ -589,7 +1198,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
           </div>
           {wallet ? (
             <>
-              <div className="chash mt1">{wallet.address}</div>
+              <div className="chash mt1" style={{ wordBreak: "break-all" }}>{wallet.address}</div>
               <div className="btwn mt2"><span className="text-s" style={{ fontSize: 13 }}>POL balance</span><span className="text-g fw7">{parseFloat(wallet.balance).toFixed(4)} POL</span></div>
               <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: "inline-block", marginTop: 6 }}>View on Polygonscan ↗</a>
             </>
