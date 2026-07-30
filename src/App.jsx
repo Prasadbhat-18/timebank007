@@ -259,7 +259,19 @@ export default function App() {
       <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} />
       <NotifStack notifs={notifs} />
       <AnimatePresence>
-        {modal && <Modal content={modal} close={() => setModal(null)} />}
+        {modal && (
+          <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={(e) => e.target.className === "overlay" && setModal(null)}>
+            <div className="mo-box" style={{ position: "relative" }}>
+              <button onClick={() => setModal(null)} style={{ position: "absolute", top: 15, right: 15, background: "transparent", border: "none", color: "#888", fontSize: 20, cursor: "pointer", zIndex: 10 }}>✕</button>
+              {isValidElement(modal) ? cloneElement(modal, { 
+                close: (...args) => {
+                  if (modal.props.close) modal.props.close(...args);
+                  setModal(null);
+                }
+              }) : modal}
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
