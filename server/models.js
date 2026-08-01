@@ -16,7 +16,8 @@ const userSchema = new Schema({
   bio:         { type: String, default: "" },
   avatar:      { type: String, default: "" },        // initials or base64 image data URL
   avatarUrl:   { type: String, default: "" },         // uploaded profile picture URL/data URI
-  role:        { type: String, enum: ["user", "admin"], default: "user" },
+  role:        { type: String, enum: ["user", "collegeAdmin", "websiteAdmin"], default: "user" },
+  college:     { type: String, default: "" }, // Institution for scoping collegeAdmin capabilities
   wallet:      { type: String, default: "" },
   credits:     { type: Number, default: 10 },
   earned:      { type: Number, default: 0 },
@@ -157,6 +158,7 @@ const disputeSchema = new Schema({
 // ─── AICTE Activity ──────────────────────────────────────────────────────────
 const aicteSchema = new Schema({
   userId:      { type: Schema.Types.ObjectId, ref: "User", required: true },
+  college:     { type: String, default: "" }, // The target institution for verification
   type:        { type: String, required: true }, // workshop, hackathon, internship, fdp, paper, course
   title:       { type: String, required: true },
   organizer:   { type: String, required: true },

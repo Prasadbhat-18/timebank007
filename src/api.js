@@ -4,8 +4,14 @@
 const BASE = import.meta.env.VITE_API_URL || "/api";
 
 async function req(path, opts = {}) {
+  const token = localStorage.getItem("token");
+  const headers = { "Content-Type": "application/json", ...opts.headers };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...opts.headers },
+    cache: "no-store",
+    headers,
     ...opts,
   });
   const data = await res.json();
@@ -17,11 +23,14 @@ async function req(path, opts = {}) {
 export const login = (email, password) =>
   req("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 
-export const register = (name, email, password, bio, wallet, referralCode) =>
-  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode }) });
+export const register = (name, email, password, bio, wallet, referralCode, college) =>
+  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college }) });
 
-export const adminLogin = (email, password) =>
-  req("/auth/admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
+export const websiteAdminLogin = (email, password) =>
+  req("/auth/website-admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
+
+export const collegeAdminLogin = (email, password) =>
+  req("/auth/college-admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
 
 export const markWelcomeShown = (userId) =>
   req(`/auth/welcome-shown/${userId}`, { method: "POST" });
@@ -107,8 +116,8 @@ export const fetchAllAicte = () => req("/aicte");
 export const fetchUserAicte = (userId) => req(`/aicte/user/${userId}`);
 export const createAicte = (data) =>
   req("/aicte", { method: "POST", body: JSON.stringify(data) });
-export const verifyAicte = (id, txHash, blockNumber) =>
-  req(`/aicte/${id}/verify`, { method: "POST", body: JSON.stringify({ txHash, blockNumber }) });
+export const verifyAicte = (id, txHash, blockNumber, pts, credits) =>
+  req(`/aicte/${id}/verify`, { method: "POST", body: JSON.stringify({ txHash, blockNumber, pts, credits }) });
 export const rejectAicte = (id) =>
   req(`/aicte/${id}/reject`, { method: "POST" });
 
@@ -133,8 +142,11 @@ export const fetchBlockchainRecords = () => req("/blockchain");
 export const fetchUserBlockchain = (wallet) => req(`/blockchain/user/${wallet}`);
 
 // ─── Admin ───────────────────────────────────────────────────────────────────
-export const fetchAdminStats = () => req("/admin/stats");
-export const adminUpdateRestriction = (userId, data) =>
-  req(`/admin/users/${userId}/restriction`, { method: "PUT", body: JSON.stringify(data) });
-export const adminUpdateLevel = (userId, data) =>
-  req(`/admin/users/${userId}/level`, { method: "PUT", body: JSON.stringify(data) });
+export const fetchAdminStats = (prefix) => req(`/${prefix}/stats`);
+export const adminUpdateRestriction = (prefix, userId, data) =>
+  req(`/${prefix}/users/${userId}/restriction`, { method: "PUT", body: JSON.stringify(data) });
+export const adminUpdateLevel = (prefix, userId, data) =>
+  req(`/${prefix}/users/${userId}/level`, { method: "PUT", body: JSON.stringify(data) });
+export const createInstitutionAdmin = (data) =>
+  req(`/website-admin/admins`, { method: "POST", body: JSON.stringify(data) });
+export const fetchInstitutionAdmins = () => req(`/website-admin/admins`);

@@ -4,6 +4,7 @@ import { ethers } from "ethers";
 import { AICTE_CFG } from "./store.js";
 import * as api from "./api.js";
 import * as chain from "./blockchain.js";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
@@ -80,6 +81,63 @@ export function StarIcon({ size = 16, color = "currentColor", fill = "none" }) {
 }
 
 // ─── Animation Variants ──────────────────────────────────────────────────────
+
+const SUGGESTED_COLLEGES = [
+  "Global Academy",
+  "Global Institute of Technology",
+  "Global Engineering College",
+  "ABC University",
+  "XYZ College",
+  "National Institute of Technology",
+  "Indian Institute of Technology",
+  "Stanford University",
+  "Massachusetts Institute of Technology (MIT)",
+  "Harvard University",
+  "Oxford University"
+];
+
+function CollegeAutocomplete({ value, onChange, placeholder }) {
+  const [show, setShow] = useState(false);
+  const filtered = SUGGESTED_COLLEGES.filter(c => c.toLowerCase().includes(value.toLowerCase()));
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input 
+        className="fi" 
+        value={value} 
+        onChange={(e) => { onChange(e.target.value); setShow(true); }} 
+        onFocus={() => setShow(true)} 
+        onBlur={() => setTimeout(() => setShow(false), 200)}
+        placeholder={placeholder} 
+      />
+      <AnimatePresence>
+        {show && filtered.length > 0 && (
+          <motion.div 
+            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
+            style={{ 
+              position: "absolute", top: "100%", left: 0, right: 0, 
+              background: "var(--bg)", border: "1px solid var(--border)", 
+              borderRadius: 8, zIndex: 100, maxHeight: 150, overflowY: "auto",
+              marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.5)" 
+            }}>
+            {filtered.map(c => (
+              <div 
+                key={c} 
+                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid var(--border)" }} 
+                onClick={() => { onChange(c); setShow(false); }}
+                onMouseEnter={(e) => e.target.style.background = "rgba(255,255,255,0.05)"}
+                onMouseLeave={(e) => e.target.style.background = "transparent"}
+              >
+                {c}
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 const pageVariants = {
   initial: { opacity: 0, y: 14 },
   animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] } },
@@ -198,27 +256,42 @@ export default function App() {
   // Login
   const doLogin = async (email, pass) => {
     try {
-      const u = await api.login(email, pass);
+      const { token, user: u } = await api.login(email, pass);
+      localStorage.setItem("token", token);
       setUser(u);
       nav("dashboard");
       notify(`Welcome back, ${u.name.split(" ")[0]}!`);
     } catch (e) { notify(e.message, "error"); }
   };
 
-  // Admin login
-  const doAdminLogin = async (email, pass) => {
+  const doWebsiteAdminLogin = async (email, pass) => {
     try {
-      const u = await api.adminLogin(email, pass);
+      const { token, user: u } = await api.websiteAdminLogin(email, pass);
+      localStorage.setItem("token", token);
       setUser(u);
-      nav("admin");
-      notify(`Welcome, ${u.name}`);
+      nav("website-admin");
+      notify(`Welcome, Website Admin`);
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  const doCollegeAdminLogin = async (email, pass) => {
+    try {
+      const { token, user: u } = await api.collegeAdminLogin(email, pass);
+      localStorage.setItem("token", token);
+      setUser(u);
+      nav("college-admin");
+      notify(`Welcome, College Admin`);
     } catch (e) { notify(e.message, "error"); }
   };
 
   // Register
-  const doRegister = async (name, email, pass, bio) => {
+  const doRegister = async (name, email, pass, bio, college) => {
     try {
-      const keyName = `timebank_inbuilt_private_key_${email.toLowerCase()}`;
+      let rc = localStorage.getItem("referralCode") || undefined;
+      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college);
+      localStorage.setItem("token", token);
+      
+      const keyName = "tb_key_" + u._id;
       let privateKey = localStorage.getItem(keyName);
       let walletAddr = "";
       if (!privateKey) {
@@ -229,15 +302,16 @@ export default function App() {
         walletAddr = new ethers.Wallet(privateKey).address;
       }
 
-      const u = await api.register(name, email, pass, bio, walletAddr);
-      setUser(u);
+      // Update the user profile with the generated wallet
+      const updatedUser = await api.updateUser(u._id, { wallet: walletAddr });
+      setUser(updatedUser);
       nav("dashboard");
       notify("Welcome! You received 2 starter credits on-chain! 🎉");
     } catch (e) { notify(e.message, "error"); }
   };
 
   // Logout
-  const doLogout = () => { setUser(null); setWallet(null); nav("landing"); };
+  const doLogout = () => { localStorage.removeItem("token"); setUser(null); setWallet(null); nav("landing"); };
 
   const handleSetModal = (fnOrNode) => {
     if (typeof fnOrNode === "function") {
@@ -277,7 +351,9 @@ export default function App() {
       <AnimatePresence mode="wait">
         <motion.div key={page} variants={pageVariants} initial="initial" animate="animate" exit="exit" style={{ position: "relative", zIndex: 1 }}>
           {page === "landing" && <Landing nav={nav} />}
-          {page === "auth" && <Auth doLogin={doLogin} doRegister={doRegister} doAdminLogin={doAdminLogin} clockAngle={clockAngle} />}
+          {page === "auth" && <Auth doLogin={doLogin} doRegister={doRegister} clockAngle={clockAngle} />}
+          {page === "website-admin-login" && <WebsiteAdminLogin doLogin={doWebsiteAdminLogin} />}
+          {page === "college-admin-login" && <CollegeAdminLogin doLogin={doCollegeAdminLogin} />}
           {page === "dashboard" && user && <Dashboard {...pageProps} />}
           {page === "services" && user && <Services {...pageProps} />}
           {page === "bookings" && user && <Bookings {...pageProps} />}
@@ -285,7 +361,8 @@ export default function App() {
           {page === "aicte" && user && <AICTEPage {...pageProps} />}
           {page === "chat" && user && <ChatPage {...pageProps} />}
           {page === "profile" && user && <Profile {...pageProps} />}
-          {page === "admin" && user?.role === "admin" && <Admin {...pageProps} />}
+          {page === "website-admin" && user?.role === "websiteAdmin" && <Admin prefix="website-admin" {...pageProps} />}
+          {page === "college-admin" && user?.role === "collegeAdmin" && <Admin prefix="college-admin" {...pageProps} />}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -294,6 +371,7 @@ export default function App() {
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 function Nav({ user, page, nav, clockAngle, doLogout }) {
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const userPages = ["dashboard", "services", "bookings", "wallet", "aicte", "chat", "profile"];
   return (
     <nav className="nav">
@@ -308,8 +386,10 @@ function Nav({ user, page, nav, clockAngle, doLogout }) {
       </div>
       {user ? (
         <>
-          {user.role === "admin" ? (
-            <button className={`nl${page === "admin" ? " act" : ""}`} onClick={() => nav("admin")}>Admin Panel</button>
+          {user.role === "websiteAdmin" ? (
+            <button className={`nl${page === "website-admin" ? " act" : ""}`} onClick={() => nav("website-admin")}>Website Admin</button>
+          ) : user.role === "collegeAdmin" ? (
+            <button className={`nl${page === "college-admin" ? " act" : ""}`} onClick={() => nav("college-admin")}>College Admin</button>
           ) : (
             userPages.map((p) => (
               <button key={p} className={`nl${page === p ? " act" : ""}`} onClick={() => nav(p)}>
@@ -322,14 +402,39 @@ function Nav({ user, page, nav, clockAngle, doLogout }) {
               <ClockIcon size={13} color="var(--em)" />
               <span>{user.credits} cr</span>
             </span>
-            <div className="nav-av" onClick={() => nav(user.role === "admin" ? "admin" : "profile")}>{user.avatar}</div>
+            <div className="nav-av" onClick={() => nav(user.role.includes("Admin") ? (user.role === "websiteAdmin" ? "website-admin" : "college-admin") : "profile")}>{user.avatar}</div>
             <button className="nl" onClick={doLogout}>Sign out</button>
           </div>
         </>
       ) : (
         <>
-          <button className="nl" onClick={() => nav("landing")} style={{ marginLeft: "auto" }}>Home</button>
-          <button className="nav-cta" onClick={() => nav("auth")}>Get started</button>
+          <div style={{ position: "relative", marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
+            <button className="nl" onClick={() => nav("landing")}>Home</button>
+            <button className="nav-cta" onClick={() => nav("auth")}>User Login</button>
+            
+            <div 
+              style={{ position: "relative" }} 
+              onMouseEnter={() => setAdminMenuOpen(true)} 
+              onMouseLeave={() => setAdminMenuOpen(false)}
+            >
+              <button className="nl" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", background: "rgba(255,255,255,0.05)", borderRadius: 6 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="3" y1="12" x2="21" y2="12"></line>
+                  <line x1="3" y1="6" x2="21" y2="6"></line>
+                  <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+              </button>
+              
+              {adminMenuOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, paddingTop: 8, minWidth: 200, zIndex: 100 }}>
+                  <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
+                    <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)", borderRadius: 0 }} onClick={() => nav("college-admin-login")}>Institution Admin</button>
+                    <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderRadius: 0 }} onClick={() => nav("website-admin-login")}>Platform Admin</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
     </nav>
@@ -769,7 +874,13 @@ export function CreditTimelineChart({ txs, userId }) {
   // Sort transactions chronologically
   const sorted = [...txs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   let bal = 2.0;
-  const balancePoints = [bal];
+  
+  // Starting point
+  const data = [{
+    time: "Start",
+    balance: bal,
+    date: sorted.length > 0 ? new Date(sorted[0].createdAt).toLocaleDateString() : ""
+  }];
 
   sorted.forEach((tx) => {
     const inc = tx.toId === userId;
@@ -778,67 +889,37 @@ export function CreditTimelineChart({ txs, userId }) {
     } else {
       bal = Math.max(0, bal - tx.amount);
     }
-    balancePoints.push(bal);
+    const d = new Date(tx.createdAt);
+    data.push({
+      time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: d.toLocaleDateString(),
+      balance: parseFloat(bal.toFixed(1)),
+      type: tx.type
+    });
   });
-
-  const width = 450;
-  const height = 120;
-  const padding = 15;
-
-  const maxVal = Math.max(...balancePoints, 5);
-  const minVal = 0;
-  const pointsCount = balancePoints.length;
-
-  const coordinates = balancePoints.map((val, idx) => {
-    const x = padding + (idx / (pointsCount - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - ((val - minVal) / (maxVal - minVal || 1)) * (height - padding * 2);
-    return { x, y, val };
-  });
-
-  let pathD = "";
-  coordinates.forEach((pt, idx) => {
-    if (idx === 0) {
-      pathD = `M ${pt.x} ${pt.y}`;
-    } else {
-      const prev = coordinates[idx - 1];
-      const cx = prev.x + (pt.x - prev.x) / 2;
-      pathD += ` C ${cx} ${prev.y}, ${cx} ${pt.y}, ${pt.x} ${pt.y}`;
-    }
-  });
-
-  let areaD = "";
-  if (coordinates.length > 0) {
-    areaD = `${pathD} L ${coordinates[coordinates.length - 1].x} ${height - padding} L ${coordinates[0].x} ${height - padding} Z`;
-  }
 
   return (
-    <div className="chart-container">
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="chartGlow" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--em)" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="var(--em)" stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-        
-        <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="rgba(255,255,255,0.02)" />
-        <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="rgba(255,255,255,0.02)" />
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.05)" />
-
-        {areaD && <path d={areaD} fill="url(#chartGlow)" />}
-        {pathD && <path d={pathD} fill="none" stroke="var(--em)" strokeWidth="2.5" />}
-
-        {coordinates.map((pt, idx) => (
-          <g key={idx}>
-            <circle cx={pt.x} cy={pt.y} r={idx === coordinates.length - 1 ? 5 : 3.5} fill={idx === coordinates.length - 1 ? "#fff" : "var(--em)"} stroke="var(--em)" strokeWidth={1.5} />
-            {idx === coordinates.length - 1 && (
-              <text x={pt.x - 20} y={pt.y - 12} fill="#fff" fontSize="9" fontWeight="bold" fontFamily="'Space Grotesk', monospace">
-                {pt.val.toFixed(1)}h
-              </text>
-            )}
-          </g>
-        ))}
-      </svg>
+    <div className="chart-container" style={{ width: "100%", height: 200, paddingRight: 20, paddingTop: 10 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="chartGlow" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--em)" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="var(--em)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+          <XAxis dataKey="time" stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 10, fill: "rgba(255,255,255,0.5)" }} tickLine={false} axisLine={false} />
+          <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 10, fill: "rgba(255,255,255,0.5)" }} tickLine={false} axisLine={false} tickFormatter={v => v + "h"} />
+          <Tooltip 
+            contentStyle={{ backgroundColor: "var(--bg)", border: "1px solid var(--em-border)", borderRadius: 8, fontSize: 12 }} 
+            itemStyle={{ color: "var(--em)", fontWeight: "bold" }}
+            labelStyle={{ color: "rgba(255,255,255,0.7)", marginBottom: 4 }}
+            formatter={(value) => [`${value} hrs`, "Balance"]}
+          />
+          <Line type="monotone" dataKey="balance" stroke="var(--em)" strokeWidth={2.5} dot={{ r: 3, fill: "var(--em)", strokeWidth: 0 }} activeDot={{ r: 6, fill: "#fff", stroke: "var(--em)", strokeWidth: 2 }} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -983,11 +1064,10 @@ function Landing({ nav }) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
+function Auth({ doLogin, doRegister, clockAngle }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
   const [le, setLe] = useState(""), [lp, setLp] = useState("");
-  const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState("");
-  const [ae, setAe] = useState("admin@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState(""), [rc, setRc] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1016,22 +1096,9 @@ function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
     setError("");
     setLoading(true);
     try {
-      await doRegister(rn, re, rp, rb);
+      await doRegister(rn, re, rp, rb, rc);
     } catch (e) {
       setError(e.message || "Failed to create account");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAdminSubmit = async () => {
-    if (!ae || !ap) { setError("Fill admin credentials"); return; }
-    setError("");
-    setLoading(true);
-    try {
-      await doAdminLogin(ae, ap);
-    } catch (e) {
-      setError(e.message || "Admin login failed");
     } finally {
       setLoading(false);
     }
@@ -1095,6 +1162,7 @@ function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
               <div className="field"><label>Full name</label><input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="Your full name" /></div>
               <div className="field"><label>Email</label><input className="fi" type="email" value={re} onChange={(e) => setRe(e.target.value)} placeholder="your@email.com" /></div>
               <div className="field"><label>Password</label><input className="fi" type="password" value={rp} onChange={(e) => setRp(e.target.value)} placeholder="Min 6 characters" /></div>
+              <div className="field"><label>College/Institution Name</label><CollegeAutocomplete value={rc} onChange={setRc} placeholder="e.g. Global Academy" /></div>
               <div className="field"><label>Bio</label><input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Brief intro..." /></div>
               <button className="btn btn-p" onClick={handleRegisterSubmit} disabled={loading}>
                 {loading ? "Creating account..." : "Create account"}
@@ -1120,26 +1188,97 @@ function Auth({ doLogin, doRegister, doAdminLogin, clockAngle }) {
           )}
         </motion.div>
 
-        {/* Admin Login Card */}
+
+      </div>
+    </div>
+  );
+}
+
+function WebsiteAdminLogin({ doLogin }) {
+  const [ae, setAe] = useState("admin@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleAdminSubmit = async () => {
+    if (!ae || !ap) { setError("Fill admin credentials"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      await doLogin(ae, ap);
+    } catch (e) {
+      setError(e.message || "Website Admin login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2 }}>
+      <div style={{ display: "flex", justifyContent: "center", width: "100%", margin: "0 auto" }}>
         <motion.div className="auth-card" style={{ width: "100%", maxWidth: 340 }} {...fadeUp(0.2)}>
           <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
-            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--purple-bg)", color: "var(--purple)", border: "1px solid rgba(139,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 18 }}>🔐</div>
-            <h2 className="auth-title" style={{ fontSize: 18 }}>Admin Portal</h2>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--purple-bg)", color: "var(--purple)", border: "1px solid rgba(139,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 18 }}>🌐</div>
+            <h2 className="auth-title" style={{ fontSize: 18 }}>Website Admin Portal</h2>
             <p className="auth-sub" style={{ fontSize: 12 }}>Platform administrative access</p>
           </div>
+          {error && (
+            <div style={{ color: "var(--red)", background: "var(--red-bg)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: "1.25rem", textAlign: "center" }}>
+              {error}
+            </div>
+          )}
           <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="admin@timebank.com" /></div>
           <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
           <button className="btn btn-p" style={{ background: "rgba(139,92,246,0.15)", border: "1px solid var(--purple)", color: "#fff", boxShadow: "none" }} onClick={handleAdminSubmit} disabled={loading}>
-            {loading ? "Authenticating..." : "Sign in as Admin"}
+            {loading ? "Authenticating..." : "Sign in as Website Admin"}
           </button>
-          <p className="hint" style={{ fontSize: 10.5 }}>Default credentials: admin@timebank.com / admin@123</p>
         </motion.div>
       </div>
     </div>
   );
 }
 
-// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+function CollegeAdminLogin({ doLogin }) {
+  const [ae, setAe] = useState("college@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleAdminSubmit = async () => {
+    if (!ae || !ap) { setError("Fill admin credentials"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      await doLogin(ae, ap);
+    } catch (e) {
+      setError(e.message || "College Admin login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2 }}>
+      <div style={{ display: "flex", justifyContent: "center", width: "100%", margin: "0 auto" }}>
+        <motion.div className="auth-card" style={{ width: "100%", maxWidth: 340 }} {...fadeUp(0.2)}>
+          <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--purple-bg)", color: "var(--purple)", border: "1px solid rgba(139,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 18 }}>🏫</div>
+            <h2 className="auth-title" style={{ fontSize: 18 }}>College Admin Portal</h2>
+            <p className="auth-sub" style={{ fontSize: 12 }}>Institution scoped access</p>
+          </div>
+          {error && (
+            <div style={{ color: "var(--red)", background: "var(--red-bg)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: "1.25rem", textAlign: "center" }}>
+              {error}
+            </div>
+          )}
+          <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="college@timebank.com" /></div>
+          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
+          <button className="btn btn-p" style={{ background: "rgba(139,92,246,0.15)", border: "1px solid var(--purple)", color: "#fff", boxShadow: "none" }} onClick={handleAdminSubmit} disabled={loading}>
+            {loading ? "Authenticating..." : "Sign in as College Admin"}
+          </button>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
 function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
   const [bookings, setBookings] = useState([]);
   const [txs, setTxs] = useState([]);
@@ -1287,6 +1426,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
         notify={notify}
         nav={nav}
         refreshUser={refreshUser}
+        load={load}
       />
     );
   };
@@ -1537,7 +1677,7 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
   const totalCr = verified.reduce((s, a) => s + a.credits, 0);
 
   const openSubmit = () => {
-    setModal(<SubmitAicteModal user={user} notify={notify} load={load} />);
+    setModal(<SubmitAicteModal key={Date.now()} user={user} notify={notify} load={load} />);
   };
 
   return (
@@ -1739,36 +1879,52 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
 }
 
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
-function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
+function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet, setModal }) {
   const [stats, setStats] = useState(null);
   const [pendingAicte, setPendingAicte] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
   const [tab, setTab] = useState("overview");
+  const [institutionAdmins, setInstitutionAdmins] = useState([]);
+  const [aicteInputs, setAicteInputs] = useState({});
 
   useEffect(() => {
-    api.fetchAdminStats().then(setStats).catch(() => {});
+    if (!prefix) return;
+    api.fetchAdminStats(prefix).then(setStats).catch(() => {});
     api.fetchAllAicte().then((all) => setPendingAicte(all.filter((a) => !a.verified))).catch(() => {});
     api.fetchAllBookings().then(setAllBookings).catch(() => {});
-  }, []);
+    
+    if (prefix === "website-admin") {
+      api.fetchInstitutionAdmins().then(setInstitutionAdmins).catch(() => {});
+    }
+  }, [prefix]);
 
   const approveAicte = async (a) => {
+    const defaultPts = AICTE_CFG[a.type]?.pts || 0;
+    const defaultCr = AICTE_CFG[a.type]?.credits || 0;
+    const currentPts = aicteInputs[a._id]?.pts !== undefined ? aicteInputs[a._id].pts : defaultPts;
+    const currentCr = aicteInputs[a._id]?.credits !== undefined ? aicteInputs[a._id].credits : defaultCr;
+    
+    const pts = parseInt(currentPts, 10);
+    const credits = parseInt(currentCr, 10);
+    if (isNaN(pts) || isNaN(credits)) return notify("Invalid points/credits", "error");
+
     let txHash = null, blockNumber = null;
     if (wallet) {
-      const student = users.find((u) => u._id === a.userId);
+      const student = a.userId;
       if (student?.wallet) {
         try {
           notify("Signing verification transaction...", "info");
-          const result = await chain.sendCredits(wallet.signer, student.wallet, a.credits, wallet.isInbuilt);
+          const result = await chain.sendCredits(wallet.signer, student.wallet, credits, wallet.isInbuilt);
           txHash = result.txHash;
           blockNumber = result.blockNumber;
         } catch (e) { notify("Blockchain tx skipped", "warning"); }
       }
     }
     try {
-      await api.verifyAicte(a._id, txHash, blockNumber);
+      await api.verifyAicte(a._id, txHash, blockNumber, pts, credits);
       notify(`Approved: ${a.title}`);
       setPendingAicte((prev) => prev.filter((x) => x._id !== a._id));
-      api.fetchAdminStats().then(setStats).catch(() => {});
+      api.fetchAdminStats(prefix).then(setStats).catch(() => {});
     } catch (e) { notify(e.message, "error"); }
   };
 
@@ -1780,7 +1936,15 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
     } catch (e) { notify(e.message, "error"); }
   };
 
-  const allUsers = users.filter((u) => u.role !== "admin");
+  const handleRestrict = async (userId, isRestricted) => {
+    try {
+      await api.adminUpdateRestriction(prefix, userId, { action: isRestricted ? "unrestrict" : "restrict", days: isRestricted ? 0 : 365, reason: "Admin action" });
+      notify(`User ${isRestricted ? "unrestricted" : "restricted"}`);
+      if (refreshUser) refreshUser();
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  const allUsers = users.filter((u) => u.role !== "websiteAdmin" && u.role !== "collegeAdmin");
 
   return (
     <div className="inner">
@@ -1798,7 +1962,7 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
       )}
 
       <div className="tab-bar">
-        {["overview", "verify", "users", "bookings"].map((t) => (
+        {["overview", "verify", "users", "bookings", ...(prefix === "website-admin" ? ["admins"] : [])].map((t) => (
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)} {t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
           </button>
@@ -1813,6 +1977,7 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
             { l: "Bookings", v: stats.bookings },
             { l: "Transactions", v: stats.transactions },
             { l: "Pending AICTE", v: stats.pendingAicte, c: stats.pendingAicte > 0 ? "text-a" : "" },
+            ...(prefix === "website-admin" ? [{ l: "Inst. Admins", v: institutionAdmins.length }] : [])
           ].map((st, i) => (
             <motion.div key={st.l} className="stat" variants={fadeUp(i * 0.05)}>
               <div className="stat-l">{st.l}</div>
@@ -1826,7 +1991,11 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
         pendingAicte.length === 0 ? <div className="empty">No pending activities to verify.</div> : (
           <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
             {pendingAicte.map((a) => {
-              const student = users.find((u) => u._id === a.userId);
+              const student = a.userId;
+              const defaultPts = AICTE_CFG[a.type]?.pts || 0;
+              const defaultCr = AICTE_CFG[a.type]?.credits || 0;
+              const currentPts = aicteInputs[a._id]?.pts !== undefined ? aicteInputs[a._id].pts : defaultPts;
+              const currentCr = aicteInputs[a._id]?.credits !== undefined ? aicteInputs[a._id].credits : defaultCr;
               return (
                 <motion.div key={a._id} className="ac-card" variants={fadeUp()}>
                   <div className="btwn">
@@ -1835,12 +2004,22 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{a.title}</div>
                   <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>
-                    By: {student?.name || "Unknown"} · Organizer: {a.organizer}
+                    By: {student?.name || "Unknown"} ({student?.college || "No College"}) · Organizer: {a.organizer}
                   </div>
-                  <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
-                    <span className="text-p fw7">+{a.pts} pts</span>
-                    <span className="text-g fw7">+{a.credits} credits</span>
-                    {a.certUrl && <a href={a.certUrl} target="_blank" rel="noreferrer">View certificate ↗</a>}
+                  <div className="row mt1" style={{ gap: 12, fontSize: 12, alignItems: "center" }}>
+                    <div className="row" style={{ gap: 4 }}>
+                      <span className="text-p fw7">Pts:</span>
+                      <input type="number" style={{ width: 45, background: "rgba(255,255,255,0.05)", color: "white", border: "1px solid var(--em-border)", borderRadius: 4, padding: "2px 4px", fontSize: 12 }} value={currentPts} onChange={e => setAicteInputs(prev => ({...prev, [a._id]: {...prev[a._id], pts: e.target.value}}))} />
+                    </div>
+                    <div className="row" style={{ gap: 4 }}>
+                      <span className="text-g fw7">Cr:</span>
+                      <input type="number" style={{ width: 45, background: "rgba(255,255,255,0.05)", color: "white", border: "1px solid var(--em-border)", borderRadius: 4, padding: "2px 4px", fontSize: 12 }} value={currentCr} onChange={e => setAicteInputs(prev => ({...prev, [a._id]: {...prev[a._id], credits: e.target.value}}))} />
+                    </div>
+                    {a.certUrl && (
+                      a.certUrl.startsWith("data:") 
+                        ? <a href={a.certUrl} download={`cert-${a._id}.png`} style={{ color: "var(--em)", textDecoration: "underline" }}>Download certificate ⬇</a>
+                        : <a href={a.certUrl} target="_blank" rel="noreferrer" style={{ color: "var(--em)", textDecoration: "underline" }}>View certificate ↗</a>
+                    )}
                   </div>
                   <div className="row mt1" style={{ gap: 6 }}>
                     <button className="btn btn-g btn-sm" onClick={() => approveAicte(a)}>Approve</button>
@@ -1903,6 +2082,25 @@ function Admin({ user, wallet, users, notify, refreshUser, connectWallet }) {
             })}
           </motion.div>
         )
+      )}
+
+      {tab === "admins" && prefix === "website-admin" && (
+        <motion.div variants={stagger} initial="initial" animate="animate">
+          <div className="btwn mb2">
+            <h2 style={{ fontSize: 16 }}>Institution Admins</h2>
+            <button className="btn btn-p btn-sm" onClick={() => setModal(<CreateAdminModal close={() => setModal(null)} notify={notify} refresh={() => api.fetchInstitutionAdmins().then(setInstitutionAdmins)} />)}>+ Create Admin</button>
+          </div>
+          {institutionAdmins.length === 0 ? <div className="empty">No institution admins found.</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {institutionAdmins.map((adm) => (
+                <div key={adm._id} className="card">
+                  <div style={{ fontWeight: "bold" }}>{adm.name}</div>
+                  <div className="text-m" style={{ fontSize: 13 }}>{adm.email} &bull; {adm.college}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
       )}
     </div>
   );
@@ -2067,15 +2265,18 @@ export function EditProfileModal({ user, refreshUser, close, notify }) {
 // ─── SUBMIT AICTE MODAL ──────────────────────────────────────────────────────
 export function SubmitAicteModal({ user, close, notify, load }) {
   const [type, setType] = useState("workshop");
+  const [customType, setCustomType] = useState("");
   const [title, setTitle] = useState("");
   const [org, setOrg] = useState("");
   const [date, setDate] = useState("");
   const [cert, setCert] = useState("");
+  const [college, setCollege] = useState(user.college || "");
 
   const handleSubmit = async () => {
-    if (!title || !org || !date) { notify("Fill all required fields", "error"); return; }
+    if (!title || !org || !date || !college || (type === "others" && !customType)) { notify("Fill all required fields", "error"); return; }
     try {
-      await api.createAicte({ userId: user._id, type, title, organizer: org, date, certUrl: cert });
+      const finalType = type === "others" ? customType : type;
+      await api.createAicte({ userId: user._id, type: finalType, title, organizer: org, date, certUrl: cert, college });
       notify("Activity submitted for admin verification!");
       close();
       load();
@@ -2089,7 +2290,18 @@ export function SubmitAicteModal({ user, close, notify, load }) {
         <label>Activity type</label>
         <select className="fi" value={type} onChange={(e) => setType(e.target.value)}>
           {Object.entries(AICTE_CFG).map(([k, v]) => <option key={k} value={k}>{v.label} (+{v.pts} pts, +{v.credits} cr)</option>)}
+          <option value="others">Others</option>
         </select>
+      </div>
+      {type === "others" && (
+        <div className="field">
+          <label>Specify Activity/Skill</label>
+          <input className="fi" placeholder="e.g. Custom Hackathon or Workshop" value={customType} onChange={(e) => setCustomType(e.target.value)} />
+        </div>
+      )}
+      <div className="field">
+        <label>Institution / College for Verification</label>
+        <CollegeAutocomplete value={college} onChange={(val) => setCollege(val)} placeholder="e.g. Global Academy" />
       </div>
       <div className="field">
         <label>Title</label>
@@ -2203,14 +2415,14 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
         <label>Skill</label>
         <select className="fi" value={skillId} onChange={(e) => setSkillId(e.target.value)}>
           {skills.map((s) => <option key={s._id} value={s._id}>{s.name} ({s.category})</option>)}
-          <option value="custom">Custom (Create a new skill)...</option>
+          <option value="custom">Others</option>
         </select>
       </div>
 
       {skillId === "custom" && (
         <div className="custom-skill-wrap">
           <div className="field">
-            <label>Custom Skill Name</label>
+            <label>Specify Activity/Skill</label>
             <input className="fi" placeholder="e.g. React Native UI Development" value={customName} onChange={(e) => setCustomName(e.target.value)} />
           </div>
           <div className="field">
@@ -2279,7 +2491,7 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
 }
 
 // ─── SERVICE DETAIL MODAL ────────────────────────────────────────────────────
-export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser }) {
+export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser, load }) {
   const [dt, setDt] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -2300,6 +2512,18 @@ export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, na
       nav("bookings");
     } catch (e) { notify(e.message, "error"); }
   };
+
+  const handleCancel = async () => {
+    if (!confirm("Are you sure you want to cancel this service?")) return;
+    try {
+      await api.deleteService(svc._id);
+      notify("Service cancelled successfully");
+      if (load) load();
+      close();
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  const canCancel = own || user.role === "websiteAdmin" || (user.role === "collegeAdmin" && prov?.college === user.college);
 
   return (
     <div>
@@ -2337,6 +2561,49 @@ export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, na
           <button className="btn btn-p" onClick={handleBooking}>Confirm booking</button>
         </>
       ) : <p className="text-a" style={{ fontSize: 13, marginTop: 8 }}>This is your own listing.</p>}
+      
+      {canCancel && (
+        <div style={{ marginTop: 16 }}>
+          <button className="btn btn-d btn-sm" onClick={handleCancel}>Cancel Service</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CREATE ADMIN MODAL ──────────────────────────────────────────────────────
+export function CreateAdminModal({ close, notify, refresh }) {
+  const [form, setForm] = useState({ name: "", email: "", password: "", college: "" });
+  
+  const handleCreate = async () => {
+    try {
+      await api.createInstitutionAdmin(form);
+      notify("Institution Admin created successfully");
+      if (refresh) refresh();
+      close();
+    } catch (e) { notify(e.message, "error"); }
+  };
+  
+  return (
+    <div>
+      <div className="mo-t">Create Institution Admin</div>
+      <div className="field">
+        <label>Name</label>
+        <input className="fi" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+      </div>
+      <div className="field">
+        <label>Email</label>
+        <input className="fi" type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+      </div>
+      <div className="field">
+        <label>Password</label>
+        <input className="fi" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
+      </div>
+      <div className="field">
+        <label>College Name</label>
+        <CollegeAutocomplete value={form.college} onChange={val => setForm({...form, college: val})} placeholder="e.g. Global Academy" />
+      </div>
+      <button className="btn btn-p" onClick={handleCreate} style={{ width: "100%", marginTop: 10 }}>Create Admin</button>
     </div>
   );
 }

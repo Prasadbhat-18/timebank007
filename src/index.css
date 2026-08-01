@@ -1683,3 +1683,9 @@ a:hover { color: var(--text); }
   .notif-dropdown { width: 280px; right: -80px; }
   .g2 { grid-template-columns: 1fr; }
 }
+
+/* Fix dropdown options visibility */
+select.fi option {
+  color: var(--text);
+  background-color: var(--bg);
+}

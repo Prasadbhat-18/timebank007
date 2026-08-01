@@ -1,11 +1,42 @@
 // ─── TimeBank — API Routes ───────────────────────────────────────────────────
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import {
   User, Skill, Service, Booking, Transaction,
   Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain,
 } from "./models.js";
 
 const r = Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
+
+function generateToken(user) {
+  return jwt.sign({ id: user._id, role: user.role, college: user.college }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+const requireAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // { id, role, college }
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+const requireRole = (roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: "Access denied. Insufficient permissions." });
+    }
+    next();
+  };
+};
 
 // ─── AICTE CONFIG ─────────────────────────────────────────────────────────────
 const AICTE_CFG = {
@@ -183,15 +214,30 @@ export async function seedSkills() {
 
 // Seed default admin
 export async function seedAdmin() {
-  const exists = await User.findOne({ role: "admin" });
+  // Migrate old "admin" roles to "websiteAdmin"
+  await User.updateMany({ role: "admin" }, { $set: { role: "websiteAdmin" } });
+
+  const exists = await User.findOne({ role: "websiteAdmin" });
   if (!exists) {
     await User.create({
-      name: "Admin", email: "admin@timebank.com", password: "admin@123",
-      bio: "Platform administrator", avatar: "AD", role: "admin",
+      name: "Super Admin", email: "admin@timebank.com", password: "admin@123",
+      bio: "Platform administrator", avatar: "AD", role: "websiteAdmin",
       wallet: "", credits: 0, earned: 0, spent: 0, aictePoints: 0, rep: 0, reviews: 0,
       level: 5, xp: 0, referralCode: "TB-ADMIN0",
     });
-    console.log("  ✓ Admin seeded (admin@timebank.com / admin@123)");
+    console.log("  ✓ Website Admin seeded (admin@timebank.com / admin@123)");
+  }
+
+  const collegeExists = await User.findOne({ role: "collegeAdmin" });
+  if (!collegeExists) {
+    await User.create({
+      name: "College Admin", email: "college@timebank.com", password: "admin@123",
+      bio: "College administrator", avatar: "CA", role: "collegeAdmin",
+      college: "NITK",
+      wallet: "", credits: 0, earned: 0, spent: 0, aictePoints: 0, rep: 0, reviews: 0,
+      level: 5, xp: 0, referralCode: "TB-COLLEGE0",
+    });
+    console.log("  ✓ College Admin seeded (college@timebank.com / admin@123) for NITK");
   }
 }
 
@@ -210,13 +256,14 @@ r.post("/auth/login", async (req, res) => {
     user.lastActiveAt = new Date();
     await user.save();
 
-    res.json(user);
+    const token = generateToken(user);
+    res.json({ token, user });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.post("/auth/register", async (req, res) => {
   try {
-    const { name, email, password, bio, wallet, referralCode: refCode } = req.body;
+    const { name, email, password, bio, wallet, referralCode: refCode, college } = req.body;
     const exists = await User.findOne({ email: email.toLowerCase() });
     if (exists) return res.status(409).json({ error: "Email already registered" });
 
@@ -268,16 +315,28 @@ r.post("/auth/register", async (req, res) => {
       { credits: 10 }
     );
 
-    res.status(201).json(user);
+    const token = generateToken(user);
+    res.status(201).json({ token, user });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/auth/admin-login", async (req, res) => {
+r.post("/auth/website-admin-login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email: email.toLowerCase(), password, role: "admin" });
-    if (!user) return res.status(401).json({ error: "Invalid admin credentials" });
-    res.json(user);
+    const user = await User.findOne({ email: email.toLowerCase(), password, role: "websiteAdmin" });
+    if (!user) return res.status(401).json({ error: "Invalid website admin credentials" });
+    const token = generateToken(user);
+    res.json({ token, user });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/auth/college-admin-login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase(), password, role: "collegeAdmin" });
+    if (!user) return res.status(401).json({ error: "Invalid college admin credentials" });
+    const token = generateToken(user);
+    res.json({ token, user });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -448,17 +507,27 @@ r.put("/services/:id", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.delete("/services/:id", async (req, res) => {
+r.delete("/services/:id", requireAuth, async (req, res) => {
   try {
     const service = await Service.findById(req.params.id);
     if (!service) return res.status(404).json({ error: "Service not found" });
 
+    let provider = null;
     if (service.providerId) {
-      const provider = await User.findById(service.providerId);
-      if (provider) {
-        provider.servicesOffered = Math.max(0, (provider.servicesOffered || 0) - 1);
-        await provider.save();
-      }
+      provider = await User.findById(service.providerId);
+    }
+
+    const isOwner = req.user.id === String(service.providerId);
+    const isWebsiteAdmin = req.user.role === "websiteAdmin";
+    const isSameCollegeAdmin = req.user.role === "collegeAdmin" && provider && provider.college === req.user.college;
+
+    if (!isOwner && !isWebsiteAdmin && !isSameCollegeAdmin) {
+      return res.status(403).json({ error: "Forbidden: You do not have permission to delete this service" });
+    }
+
+    if (provider) {
+      provider.servicesOffered = Math.max(0, (provider.servicesOffered || 0) - 1);
+      await provider.save();
     }
 
     await Service.findByIdAndDelete(req.params.id);
@@ -469,8 +538,16 @@ r.delete("/services/:id", async (req, res) => {
 });
 
 // ─── BOOKINGS ────────────────────────────────────────────────────────────────
-r.get("/bookings", async (_req, res) => {
-  try { res.json(await Booking.find().sort({ createdAt: -1 })); }
+r.get("/bookings", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+  try { 
+    if (req.user.role === "collegeAdmin") {
+      const collegeUsers = await User.find({ college: req.user.college }).select('_id');
+      const userIds = collegeUsers.map(u => u._id);
+      res.json(await Booking.find({ $or: [{ providerId: { $in: userIds } }, { requesterId: { $in: userIds } }] }).sort({ createdAt: -1 }));
+    } else {
+      res.json(await Booking.find().sort({ createdAt: -1 })); 
+    }
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1070,40 +1147,52 @@ r.post("/referral/validate", async (req, res) => {
 });
 
 // ─── AICTE ───────────────────────────────────────────────────────────────────
-r.get("/aicte", async (_req, res) => {
-  try { res.json(await Aicte.find().sort({ createdAt: -1 })); }
+r.get("/aicte", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+  try { 
+    if (req.user.role === "collegeAdmin") {
+      res.json(await Aicte.find({ college: req.user.college }).populate("userId", "name college avatar").sort({ createdAt: -1 }));
+    } else {
+      res.json(await Aicte.find().populate("userId", "name college avatar").sort({ createdAt: -1 }));
+    }
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.get("/aicte/user/:userId", async (req, res) => {
-  try { res.json(await Aicte.find({ userId: req.params.userId }).sort({ createdAt: -1 })); }
+  try { res.json(await Aicte.find({ userId: req.params.userId }).populate("userId", "name college avatar").sort({ createdAt: -1 })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.post("/aicte", async (req, res) => {
   try {
-    const { type } = req.body;
-    const cfg = AICTE_CFG[type];
-    if (!cfg) return res.status(400).json({ error: "Invalid activity type" });
-    const activity = await Aicte.create({ ...req.body, pts: cfg.pts, credits: cfg.credits, verified: false });
+    const activity = await Aicte.create({ ...req.body, pts: 0, credits: 0, verified: false });
     res.status(201).json(activity);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Admin verify AICTE activity
-r.post("/aicte/:id/verify", async (req, res) => {
+r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
   try {
-    const { txHash, blockNumber } = req.body;
+    const { txHash, blockNumber, pts, credits } = req.body;
     const activity = await Aicte.findById(req.params.id);
     if (!activity) return res.status(404).json({ error: "Activity not found" });
+
+    const user = await User.findById(activity.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // College admin scoping check
+    if (req.user.role === "collegeAdmin" && user.college !== req.user.college) {
+      return res.status(403).json({ error: "Cannot verify activity outside your college" });
+    }
 
     activity.verified = true;
     activity.txHash = txHash || null;
     activity.blockNumber = blockNumber || null;
+    if (pts !== undefined) activity.pts = pts;
+    if (credits !== undefined) activity.credits = credits;
     await activity.save();
 
     // Add credits + points to user
-    const user = await User.findById(activity.userId);
     if (user) {
       user.credits += activity.credits;
       user.earned += activity.credits;
@@ -1239,8 +1328,8 @@ r.get("/blockchain/user/:wallet", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── ADMIN ───────────────────────────────────────────────────────────────────
-r.get("/admin/stats", async (_req, res) => {
+// ─── WEBSITE ADMIN ───────────────────────────────────────────────────────────────────
+r.get("/website-admin/stats", requireAuth, requireRole(["websiteAdmin"]), async (_req, res) => {
   try {
     const [users, services, bookings, transactions, pendingAicte, openDisputes, restrictedUsers] = await Promise.all([
       User.countDocuments({ role: "user" }),
@@ -1255,8 +1344,7 @@ r.get("/admin/stats", async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Admin: manage user restrictions
-r.put("/admin/users/:id/restriction", async (req, res) => {
+r.put("/website-admin/users/:id/restriction", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
   try {
     const { action, days, reason } = req.body;
     const user = await User.findById(req.params.id);
@@ -1266,35 +1354,19 @@ r.put("/admin/users/:id/restriction", async (req, res) => {
       user.restrictionUntil = null;
       user.restrictionReason = "";
       user.freeloaderWarned = false;
-      await createNotification(user._id, "restriction",
-        "Restriction Lifted ✅",
-        "An admin has lifted your service restriction.",
-        {}
-      );
+      await createNotification(user._id, "restriction", "Restriction Lifted ✅", "An admin has lifted your service restriction.", {});
     } else if (action === "apply") {
       const restrictDays = days || 5;
       user.restrictionUntil = new Date(Date.now() + restrictDays * 24 * 60 * 60 * 1000);
       user.restrictionReason = reason || "Admin-applied restriction";
-      await createNotification(user._id, "restriction",
-        "Service Restriction Applied ⚠️",
-        `An admin has restricted your ability to take services for ${restrictDays} days. Reason: ${reason || "Policy violation"}`,
-        { restrictionUntil: user.restrictionUntil }
-      );
+      await createNotification(user._id, "restriction", "Service Restriction Applied ⚠️", `An admin has restricted your ability to take services for ${restrictDays} days. Reason: ${reason || "Policy violation"}`, { restrictionUntil: user.restrictionUntil });
     } else if (action === "block") {
       user.isBlocked = true;
       await Service.deleteMany({ providerId: user._id });
-      await createNotification(user._id, "restriction",
-        "Account Suspended 🚫",
-        `Your account has been suspended by an admin. Reason: ${reason || "Frauds or harmful contents violation"}.`,
-        {}
-      );
+      await createNotification(user._id, "restriction", "Account Suspended 🚫", `Your account has been suspended by an admin. Reason: ${reason || "Frauds or harmful contents violation"}.`, {});
     } else if (action === "unblock") {
       user.isBlocked = false;
-      await createNotification(user._id, "restriction",
-        "Account Reactivated ✅",
-        "An admin has reactivated your account.",
-        {}
-      );
+      await createNotification(user._id, "restriction", "Account Reactivated ✅", "An admin has reactivated your account.", {});
     }
 
     await user.save();
@@ -1302,8 +1374,7 @@ r.put("/admin/users/:id/restriction", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Admin: manage user level
-r.put("/admin/users/:id/level", async (req, res) => {
+r.put("/website-admin/users/:id/level", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
   try {
     const { level } = req.body;
     if (level < 1 || level > 5) return res.status(400).json({ error: "Level must be 1-5" });
@@ -1314,12 +1385,78 @@ r.put("/admin/users/:id/level", async (req, res) => {
     user.level = level;
     await user.save();
 
-    await createNotification(user._id, "level_up",
-      `Level Adjusted to ${level}`,
-      `An admin has set your level to ${level} ("${LEVEL_CFG[level].name}").`,
-      { oldLevel, newLevel: level, levelName: LEVEL_CFG[level].name }
-    );
+    await createNotification(user._id, "level_up", `Level Adjusted to ${level}`, `An admin has set your level to ${level} ("${LEVEL_CFG[level].name}").`, { oldLevel, newLevel: level, levelName: LEVEL_CFG[level].name });
+    res.json(user);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
+r.get("/website-admin/admins", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
+  try {
+    const admins = await User.find({ role: "collegeAdmin" });
+    res.json(admins);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/website-admin/admins", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
+  try {
+    const { name, email, password, college } = req.body;
+    if (!name || !email || !password || !college) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ error: "Email already in use" });
+    
+    const admin = new User({
+      name, email, password, college, role: "collegeAdmin",
+      bio: "Institution Admin Account", credits: 0, 
+    });
+    await admin.save();
+    res.json(admin);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── COLLEGE ADMIN ───────────────────────────────────────────────────────────────────
+r.get("/college-admin/stats", requireAuth, requireRole(["collegeAdmin"]), async (req, res) => {
+  try {
+    const [users, pendingAicte, restrictedUsers] = await Promise.all([
+      User.countDocuments({ role: "user", college: req.user.college }),
+      Aicte.countDocuments({ verified: false, college: req.user.college }),
+      User.countDocuments({ restrictionUntil: { $gt: new Date() }, college: req.user.college }),
+    ]);
+    res.json({ users, pendingAicte, restrictedUsers });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.put("/college-admin/users/:id/restriction", requireAuth, requireRole(["collegeAdmin"]), async (req, res) => {
+  try {
+    const { action, days, reason } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (user.college !== req.user.college) {
+      return res.status(403).json({ error: "Cannot modify a user outside your college" });
+    }
+
+    if (action === "lift") {
+      user.restrictionUntil = null;
+      user.restrictionReason = "";
+      user.freeloaderWarned = false;
+      await createNotification(user._id, "restriction", "Restriction Lifted ✅", "Your college admin has lifted your service restriction.", {});
+    } else if (action === "apply") {
+      const restrictDays = days || 5;
+      user.restrictionUntil = new Date(Date.now() + restrictDays * 24 * 60 * 60 * 1000);
+      user.restrictionReason = reason || "College Admin applied restriction";
+      await createNotification(user._id, "restriction", "Service Restriction Applied ⚠️", `Your college admin has restricted your ability to take services for ${restrictDays} days. Reason: ${reason || "Policy violation"}`, { restrictionUntil: user.restrictionUntil });
+    } else if (action === "block") {
+      user.isBlocked = true;
+      await Service.deleteMany({ providerId: user._id });
+      await createNotification(user._id, "restriction", "Account Suspended 🚫", `Your account has been suspended by your college admin. Reason: ${reason || "Policy violation"}.`, {});
+    } else if (action === "unblock") {
+      user.isBlocked = false;
+      await createNotification(user._id, "restriction", "Account Reactivated ✅", "Your college admin has reactivated your account.", {});
+    }
+
+    await user.save();
     res.json(user);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
