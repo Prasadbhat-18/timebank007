@@ -1962,7 +1962,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       )}
 
       <div className="tab-bar">
-        {["overview", "verify", "users", "bookings", ...(prefix === "website-admin" ? ["admins"] : [])].map((t) => (
+        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", ...(prefix === "website-admin" ? ["admins"] : [])].map((t) => (
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)} {t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
           </button>
@@ -1976,7 +1976,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
             { l: "Services", v: stats.services },
             { l: "Bookings", v: stats.bookings },
             { l: "Transactions", v: stats.transactions },
-            { l: "Pending AICTE", v: stats.pendingAicte, c: stats.pendingAicte > 0 ? "text-a" : "" },
+            ...(prefix === "college-admin" ? [{ l: "Pending AICTE", v: stats.pendingAicte, c: stats.pendingAicte > 0 ? "text-a" : "" }] : []),
             ...(prefix === "website-admin" ? [{ l: "Inst. Admins", v: institutionAdmins.length }] : [])
           ].map((st, i) => (
             <motion.div key={st.l} className="stat" variants={fadeUp(i * 0.05)}>
