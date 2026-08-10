@@ -1181,7 +1181,7 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // College admin scoping check
-    if (req.user.role === "collegeAdmin" && user.college !== req.user.college) {
+    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
       return res.status(403).json({ error: "Cannot verify activity outside your college" });
     }
 
@@ -1226,16 +1226,18 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/aicte/:id/reject", async (req, res) => {
+r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
   try {
     const activity = await Aicte.findById(req.params.id);
-    if (activity) {
+    if (!activity) return res.status(404).json({ error: "Activity not found" });
+    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
+      return res.status(403).json({ error: "Cannot reject activity outside your college" });
+    }
       await createNotification(activity.userId, "warning",
         "AICTE Activity Rejected",
         `Your activity "${activity.title}" was not approved.`,
         {}
       );
-    }
     await Aicte.findByIdAndDelete(req.params.id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
