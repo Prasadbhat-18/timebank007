@@ -2885,7 +2885,7 @@ export function AiChatWidget({ user }) {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && send()}
               />
-              <button className="btn btn-p" style={{ padding: "0 12px" }} onClick={send}>Send</button>
+              <button className="btn btn-p" style={{ padding: "0 12px", width: "auto" }} onClick={send}>Send</button>
             </div>
           </motion.div>
         )}

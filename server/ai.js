@@ -34,7 +34,7 @@ Example: ["id1", "id2", "id3"]
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         temperature: 0.2,
@@ -101,7 +101,7 @@ Do not return any other text or markdown block formatting, just the raw JSON obj
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: [
         {
           inlineData: {
@@ -162,7 +162,7 @@ Answer their questions concisely and professionally. Do not invent features that
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: formattedHistory,
       config: {
         systemInstruction: systemPrompt,
