@@ -5,6 +5,7 @@ import {
   User, Skill, Service, Booking, Transaction,
   Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain,
 } from "./models.js";
+import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
 
 const r = Router();
 
@@ -402,6 +403,23 @@ r.get("/users/:id/level-progress", async (req, res) => {
       neededXP,
       isMaxLevel: currentLevel >= 5,
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Public Enhanced Profile ──
+r.get("/users/:id/profile", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password -email -phone -wallet");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const activeServices = await Service.find({ providerId: req.params.id, status: "active" }).populate("skillId");
+    const pastReviews = await Review.find({ revieweeId: req.params.id, direction: "requester_to_provider" })
+      .populate("reviewerId", "name avatar avatarUrl")
+      .populate("serviceId", "title category")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    res.json({ user, activeServices, pastReviews });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -893,79 +911,6 @@ r.get("/reviews/service/:serviceId", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/reviews", async (req, res) => {
-  try {
-    const review = await Review.create(req.body);
-
-    // Update reviewee's rep
-    const allRevs = await Review.find({ revieweeId: req.body.revieweeId });
-    const avg = allRevs.reduce((s, rv) => s + rv.rating, 0) / allRevs.length;
-    const reviewee = await User.findById(req.body.revieweeId);
-    if (reviewee) {
-      reviewee.rep = Math.round(avg * 10) / 10;
-      reviewee.reviews = allRevs.length;
-
-      // Recompute level (rating may have changed)
-      const newLevel = computeLevel(reviewee);
-      const oldLevel = reviewee.level;
-
-      // Check for demotion
-      if (newLevel < oldLevel) {
-        if (!reviewee.demotionWarned) {
-          reviewee.demotionWarned = true;
-          reviewee.demotionWarningAt = new Date();
-          await createNotification(reviewee._id, "demotion_warning",
-            "Level At Risk ⚠️",
-            `Your rating has dropped. Maintain a ${LEVEL_CFG[oldLevel].ratingReq}+ rating to keep Level ${oldLevel}. You have 7 days to recover.`,
-            { currentLevel: oldLevel, requiredRating: LEVEL_CFG[oldLevel].ratingReq }
-          );
-        } else {
-          // Check if grace period (7 days) has passed
-          const gracePeriod = 7 * 24 * 60 * 60 * 1000;
-          if (reviewee.demotionWarningAt && (Date.now() - new Date(reviewee.demotionWarningAt).getTime()) > gracePeriod) {
-            reviewee.level = newLevel;
-            reviewee.demotionWarned = false;
-            reviewee.demotionWarningAt = null;
-            await createNotification(reviewee._id, "level_up",
-              `Level Changed to ${newLevel}`,
-              `Your level has been adjusted to "${LEVEL_CFG[newLevel].name}" due to rating changes.`,
-              { oldLevel, newLevel, levelName: LEVEL_CFG[newLevel].name }
-            );
-          }
-        }
-      } else {
-        reviewee.demotionWarned = false;
-        reviewee.demotionWarningAt = null;
-        if (newLevel > oldLevel) {
-          reviewee.level = newLevel;
-          await createNotification(reviewee._id, "level_up",
-            `Level Up! 🎉 You're now Level ${newLevel}`,
-            `Congratulations! You've reached "${LEVEL_CFG[newLevel].name}" status.`,
-            { oldLevel, newLevel, levelName: LEVEL_CFG[newLevel].name }
-          );
-        }
-      }
-
-      reviewee.trustScore = computeTrustScore(reviewee);
-      await reviewee.save();
-      await checkAndAwardBadges(reviewee);
-    }
-
-    // Notify reviewee
-    const reviewer = await User.findById(req.body.reviewerId);
-    await createNotification(req.body.revieweeId, "review",
-      "New Review Received ⭐",
-      `${reviewer?.name || "Someone"} left you a ${req.body.rating}-star review.`,
-      { rating: req.body.rating, reviewId: review._id }
-    );
-
-    // Check reviewer badges
-    if (reviewer) await checkAndAwardBadges(reviewer);
-
-    res.status(201).json(review);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
 r.get("/notifications/user/:userId", async (req, res) => {
   try {
@@ -1167,6 +1112,150 @@ r.post("/aicte", async (req, res) => {
   try {
     const activity = await Aicte.create({ ...req.body, pts: 0, credits: 0, verified: false });
     res.status(201).json(activity);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Reviews ──
+r.post("/reviews", requireAuth, async (req, res) => {
+  try {
+    const { bookingId, rating, comment } = req.body;
+    const booking = await Booking.findById(bookingId);
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    if (booking.requesterId.toString() !== req.user.id) return res.status(403).json({ error: "Unauthorized" });
+    if (booking.status !== "completed") return res.status(400).json({ error: "Booking must be completed to leave a review" });
+    if (booking.requesterReviewed) return res.status(400).json({ error: "Already reviewed" });
+
+    // Create review
+    const review = await Review.create({
+      reviewerId: req.user.id,
+      revieweeId: booking.providerId,
+      bookingId: booking._id,
+      serviceId: booking.serviceId,
+      rating: Number(rating),
+      comment: comment || "",
+      direction: "requester_to_provider"
+    });
+
+    // Update booking
+    booking.requesterReviewed = true;
+    await booking.save();
+
+    // Update provider stats (recalculate rep and total reviews)
+    const provider = await User.findById(booking.providerId);
+    if (provider) {
+      provider.reviews = (provider.reviews || 0) + 1;
+      // Simple rolling average for rep, assuming rep is out of 5, or just raw sum. Currently rep in schema defaults to 0. Let's make rep the average rating scaled out of 100? No, rating is 1-5, so rep is 1-5.
+      // Wait, let's just make rep the average rating.
+      const allReviews = await Review.find({ revieweeId: provider._id, direction: "requester_to_provider" });
+      const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+      provider.rep = Math.round(avgRating * 10) / 10; // round to 1 decimal
+
+      // Recompute level (rating may have changed)
+      const newLevel = computeLevel(provider);
+      const oldLevel = provider.level;
+
+      // Check for demotion
+      if (newLevel < oldLevel) {
+        if (!provider.demotionWarned) {
+          provider.demotionWarned = true;
+          provider.demotionWarningAt = new Date();
+          await createNotification(provider._id, "demotion_warning",
+            "Level At Risk ⚠️",
+            `Your rating has dropped. Maintain a ${LEVEL_CFG[oldLevel].ratingReq}+ rating to keep Level ${oldLevel}. You have 7 days to recover.`,
+            { currentLevel: oldLevel, requiredRating: LEVEL_CFG[oldLevel].ratingReq }
+          );
+        } else {
+          // Check if grace period (7 days) has passed
+          const gracePeriod = 7 * 24 * 60 * 60 * 1000;
+          if (provider.demotionWarningAt && (Date.now() - new Date(provider.demotionWarningAt).getTime()) > gracePeriod) {
+            provider.level = newLevel;
+            provider.demotionWarned = false;
+            provider.demotionWarningAt = null;
+            await createNotification(provider._id, "level_up",
+              `Level Changed to ${newLevel}`,
+              `Your level has been adjusted to "${LEVEL_CFG[newLevel].name}" due to rating changes.`,
+              { oldLevel, newLevel, levelName: LEVEL_CFG[newLevel].name }
+            );
+          }
+        }
+      } else {
+        provider.demotionWarned = false;
+        provider.demotionWarningAt = null;
+        if (newLevel > oldLevel) {
+          provider.level = newLevel;
+          await createNotification(provider._id, "level_up",
+            `Level Up! 🎉 You're now Level ${newLevel}`,
+            `Congratulations! You've reached "${LEVEL_CFG[newLevel].name}" status.`,
+            { oldLevel, newLevel, levelName: LEVEL_CFG[newLevel].name }
+          );
+        }
+      }
+
+      provider.trustScore = computeTrustScore(provider);
+      await provider.save();
+      await checkAndAwardBadges(provider);
+      
+      const reviewer = await User.findById(req.user.id);
+      if (reviewer) await checkAndAwardBadges(reviewer);
+    }
+
+    // Create Notification
+    await Notification.create({
+      userId: booking.providerId,
+      type: "review",
+      title: "New Review Received",
+      message: `You received a ${rating}-star review for a completed service.`,
+      data: { reviewId: review._id }
+    });
+
+    res.status(201).json(review);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// AI Smart Recommendations
+r.get("/recommendations", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const activeServices = await Service.find({ status: "active" });
+    const recommendedIds = await getRecommendations(user, activeServices);
+    // Find full service objects
+    const recommendedServices = await Service.find({ _id: { $in: recommendedIds } }).populate("providerId", "name avatar");
+    res.json(recommendedServices);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin verify AICTE activity (AI OCR validation)
+r.post("/aicte/:id/ai-verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+  try {
+    const activity = await Aicte.findById(req.params.id);
+    if (!activity) return res.status(404).json({ error: "Activity not found" });
+
+    const user = await User.findById(activity.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
+      return res.status(403).json({ error: "Cannot verify activity outside your college" });
+    }
+
+    const { score, feedback } = await verifyAicteCertificate(activity.certUrl, user.name, activity.title);
+    
+    activity.aiScore = score;
+    activity.aiFeedback = feedback;
+    await activity.save();
+
+    res.json(activity);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// AI Chatbot
+r.post("/ai-chat", requireAuth, async (req, res) => {
+  try {
+    const { history, message } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const reply = await handleWebsiteChat(history, message, user);
+    res.json({ reply });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

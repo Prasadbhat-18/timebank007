@@ -121,6 +121,21 @@ export const verifyAicte = (id, txHash, blockNumber, pts, credits) =>
 export const rejectAicte = (id) =>
   req(`/aicte/${id}/reject`, { method: "POST" });
 
+export const fetchRecommendations = () =>
+  req("/recommendations");
+
+export const aiVerifyAicte = (id) =>
+  req(`/aicte/${id}/ai-verify`, { method: "POST" });
+
+export const fetchUserProfile = (userId) =>
+  req(`/users/${userId}/profile`);
+
+export const submitReview = (data) =>
+  req("/reviews", { method: "POST", body: JSON.stringify(data) });
+
+export const sendAiChatMessage = (history, message) =>
+  req("/ai-chat", { method: "POST", body: JSON.stringify({ history, message }) });
+
 // ─── Chats ───────────────────────────────────────────────────────────────────
 export const fetchUserChats = (userId) => req(`/chats/user/${userId}`);
 export const createChat = (participants) =>

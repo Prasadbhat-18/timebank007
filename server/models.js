@@ -34,6 +34,8 @@ const userSchema = new Schema({
 
   // ── Enhanced Profile ──
   skills:        [{ type: String }],
+  interests:     [{ type: String }],
+  education:      { type: String, default: "" },
   phone:          { type: String, default: "" },
   phoneVerified:  { type: Boolean, default: false },
   location:       { type: String, default: "" },
@@ -106,6 +108,7 @@ const bookingSchema = new Schema({
   // ── Mutual Completion Confirmation ──
   providerConfirmed:  { type: Boolean, default: false },
   requesterConfirmed: { type: Boolean, default: false },
+  requesterReviewed:  { type: Boolean, default: false },
   autoConfirmAt:      { type: Date, default: null },
 }, { timestamps: true });
 
@@ -169,6 +172,8 @@ const aicteSchema = new Schema({
   verified:    { type: Boolean, default: false },
   txHash:      { type: String, default: null },
   blockNumber: { type: Number, default: null },
+  aiScore:     { type: Number, default: null },
+  aiFeedback:  { type: String, default: "" }
 }, { timestamps: true });
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
@@ -188,7 +193,7 @@ const emergencySchema = new Schema({
   userId:   { type: Schema.Types.ObjectId, ref: "User", required: true },
   name:     { type: String, required: true },
   phone:    { type: String, required: true },
-  relation: { type: String, required: true },
+  relation: { type: String, required: true }
 }, { timestamps: true });
 
 // ─── Blockchain Record ───────────────────────────────────────────────────────

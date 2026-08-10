@@ -365,6 +365,8 @@ export default function App() {
           {page === "college-admin" && user?.role === "collegeAdmin" && <Admin prefix="college-admin" {...pageProps} />}
         </motion.div>
       </AnimatePresence>
+
+      {user && <AiChatWidget user={user} />}
     </div>
   );
 }
@@ -1403,9 +1405,12 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
 
+  const [recommendations, setRecommendations] = useState([]);
+  
   const load = useCallback(() => {
     setLoading(true);
     api.fetchServices().then((s) => { setServices(s); setLoading(false); }).catch(() => setLoading(false));
+    api.fetchRecommendations().then(r => setRecommendations(r)).catch(console.error);
   }, []);
   useEffect(load, [load]);
 
@@ -1423,10 +1428,12 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
         prov={prov}
         sk={sk}
         own={own}
+        close={() => setModal(null)}
         notify={notify}
         nav={nav}
         refreshUser={refreshUser}
         load={load}
+        setModal={setModal}
       />
     );
   };
@@ -1451,6 +1458,30 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
         <div className={`chip${filter === "all" ? " on" : ""}`} onClick={() => setFilter("all")}>All</div>
         {cats.map((c) => <div key={c} className={`chip${filter === c ? " on" : ""}`} onClick={() => setFilter(c)}>{c}</div>)}
       </div>
+      {recommendations.length > 0 && filter === "all" && !search && (
+        <div className="mb2">
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "var(--purple)", fontSize: "1.2rem" }}>🤖</span> AI Recommended for You
+          </h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: "1rem" }}>
+            {recommendations.map((s) => {
+              const prov = getU(s.providerId), sk = getSk(s.skillId);
+              return (
+                <motion.div key={s._id} className="card" whileHover={{ y: -2 }} onClick={() => openDetail(s)} style={{ border: "1px solid rgba(139,92,246,0.3)", background: "linear-gradient(to bottom right, rgba(139,92,246,0.05), transparent)" }}>
+                  <div className="card-tag" style={{ background: "var(--purple-bg)", color: "var(--purple)" }}>{s.category}</div>
+                  <h3>{s.title}</h3>
+                  <p className="text-s clamp mb1" style={{ flex: 1 }}>{s.description}</p>
+                  <div className="btwn" style={{ borderTop: "1px solid var(--border)", paddingTop: "0.75rem" }}>
+                    <div className="row"><div className="av-sm">{prov?.avatar || "U"}</div><span className="text-s">{prov?.name?.split(" ")[0] || "User"}</span></div>
+                    <div style={{ fontWeight: 600, color: "var(--purple)" }}>{s.price} cr</div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {loading ? <div className="empty">Loading...</div> : svcs.length === 0 ? (
         <div className="empty">{services.length === 0 ? "No services yet — be the first to offer a skill!" : "No matches found."}</div>
       ) : (
@@ -1543,10 +1574,10 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
             const statusColors = { pending: "ta", confirmed: "tb", completed: "tg", cancelled: "tr" };
             return (
               <motion.div key={b._id} className="bk-row" variants={fadeUp()}>
-                <div className="av" style={{ width: 34, height: 34, fontSize: 11 }}>{other?.avatar || "?"}</div>
+                <div className="av" style={{ width: 34, height: 34, fontSize: 11, cursor: "pointer" }} onClick={() => other && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.avatar || "?"}</div>
                 <div style={{ flex: 1 }}>
                   <div className="btwn">
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{other?.name || "User"}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, cursor: "pointer" }} onClick={() => other && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.name || "User"}</div>
                     <span className={`tag ${statusColors[b.status]}`}>{b.status}</span>
                   </div>
                   <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>
@@ -1558,6 +1589,11 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
                     {b.status === "pending" && isProvider && <><button className="btn btn-g btn-sm" onClick={() => confirm(b)}>Confirm</button><button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Decline</button></>}
                     {b.status === "confirmed" && isProvider && <button className="btn btn-g btn-sm" onClick={() => complete(b)}>Complete session</button>}
                     {b.status === "pending" && !isProvider && <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Cancel</button>}
+                    {b.status === "completed" && !isProvider && !b.requesterReviewed && (
+                      <button className="btn btn-o btn-sm" style={{ color: "var(--yellow)", borderColor: "var(--yellow)" }} onClick={() => setModal(<ReviewModal booking={b} refreshUser={() => { load(); refreshUser(); }} notify={notify} close={() => setModal(null)} />)}>
+                        ⭐ Leave Review
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -1829,7 +1865,15 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
               <div className="text-s" style={{ fontSize: 13 }}>{user.email}</div>
             </div>
           </div>
+          {user.education && <div className="text-s mb1" style={{ fontSize: 13, color: "var(--purple)" }}>🎓 {user.education}</div>}
           <div className="text-s" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12 }}>{user.bio || "No bio yet."}</div>
+          {user.interests && user.interests.length > 0 && (
+            <div className="row mb2" style={{ flexWrap: "wrap", gap: 6 }}>
+              {user.interests.map((int, i) => (
+                <span key={i} className="tag tp">{int}</span>
+              ))}
+            </div>
+          )}
           <div className="row" style={{ gap: 6 }}>
             <button className="btn btn-o btn-sm" onClick={editProfile}>Edit profile</button>
             <button className="btn btn-o btn-sm" onClick={doLogout}>Sign out</button>
@@ -1936,6 +1980,15 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
     } catch (e) { notify(e.message, "error"); }
   };
 
+  const handleAiVerify = async (a) => {
+    try {
+      notify("AI is verifying certificate... this may take a moment.");
+      const updatedActivity = await api.aiVerifyAicte(a._id);
+      setPendingAicte((prev) => prev.map((x) => x._id === a._id ? updatedActivity : x));
+      notify("AI Verification completed!");
+    } catch (e) { notify(e.message, "error"); }
+  };
+
   const handleRestrict = async (userId, isRestricted) => {
     try {
       await api.adminUpdateRestriction(prefix, userId, { action: isRestricted ? "unrestrict" : "restrict", days: isRestricted ? 0 : 365, reason: "Admin action" });
@@ -2021,9 +2074,21 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
                         : <a href={a.certUrl} target="_blank" rel="noreferrer" style={{ color: "var(--em)", textDecoration: "underline" }}>View certificate ↗</a>
                     )}
                   </div>
+                  {a.aiScore !== null && a.aiScore !== undefined && (
+                    <div className="mt1 p1" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 6, fontSize: 12 }}>
+                      <div className="row" style={{ gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, color: "var(--purple)" }}>🤖 AI Genuineness Score:</span>
+                        <span style={{ fontWeight: 700, color: a.aiScore >= 80 ? "var(--green)" : a.aiScore >= 50 ? "var(--yellow)" : "var(--red)" }}>
+                          {a.aiScore}%
+                        </span>
+                      </div>
+                      <div style={{ color: "var(--text-secondary)", lineHeight: 1.4 }}>{a.aiFeedback}</div>
+                    </div>
+                  )}
                   <div className="row mt1" style={{ gap: 6 }}>
                     <button className="btn btn-g btn-sm" onClick={() => approveAicte(a)}>Approve</button>
                     <button className="btn btn-d btn-sm" onClick={() => rejectAicte(a)}>Reject</button>
+                    <button className="btn btn-o btn-sm" onClick={() => handleAiVerify(a)} style={{ borderColor: "var(--purple)", color: "var(--purple)" }}>🤖 AI Verify</button>
                   </div>
                 </motion.div>
               );
@@ -2146,6 +2211,124 @@ export function ImageSlider({ images }) {
   );
 }
 
+// ─── PROVIDER PROFILE MODAL ────────────────────────────────────────────────────
+export function ProviderProfileModal({ userId, notify, close }) {
+  const [profile, setProfile] = useState(null);
+  
+  useEffect(() => {
+    api.fetchUserProfile(userId).then(setProfile).catch(() => notify("Failed to load profile", "error"));
+  }, [userId]);
+
+  if (!profile) return <div className="p2" style={{ textAlign: "center" }}>Loading profile...</div>;
+
+  const { user, activeServices, pastReviews } = profile;
+  
+  return (
+    <div style={{ maxHeight: "80vh", overflowY: "auto" }}>
+      <div className="row mb2" style={{ alignItems: "flex-start", gap: 16 }}>
+        <div className="av" style={{ width: 64, height: 64, fontSize: 24 }}>{user.avatar}</div>
+        <div style={{ flex: 1 }}>
+          <div className="btwn" style={{ alignItems: "center" }}>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{user.name}</div>
+            <div className="tag tg">Rep: {user.rep || "New"} ⭐</div>
+          </div>
+          <div className="text-s" style={{ fontSize: 13, marginTop: 4 }}>{user.college || "Independent Professional"}</div>
+          {user.education && <div className="text-s mt1" style={{ fontSize: 13, color: "var(--purple)" }}>🎓 {user.education}</div>}
+        </div>
+      </div>
+      
+      <div className="text-m mb2" style={{ lineHeight: 1.6 }}>{user.bio || "This user hasn't added a bio yet."}</div>
+      
+      {user.interests && user.interests.length > 0 && (
+        <div className="mb2">
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: "var(--text-secondary)" }}>INTERESTS</div>
+          <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+            {user.interests.map((int, i) => <span key={i} className="tag tp">{int}</span>)}
+          </div>
+        </div>
+      )}
+
+      {activeServices.length > 0 && (
+        <div className="mb2 pt2" style={{ borderTop: "1px solid var(--border)" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: "var(--text-secondary)" }}>ACTIVE SERVICES</div>
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            {activeServices.map(s => (
+              <div key={s._id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", borderRadius: 6, padding: "0.75rem" }}>
+                <div className="btwn"><div style={{ fontWeight: 600 }}>{s.title}</div><div style={{ color: "var(--purple)", fontWeight: 700 }}>{s.price} cr</div></div>
+                <div className="text-s mt1">{s.category}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mb2 pt2" style={{ borderTop: "1px solid var(--border)" }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: "var(--text-secondary)" }}>RECENT REVIEWS ({user.reviews || 0})</div>
+        {pastReviews.length === 0 ? <div className="text-s">No reviews yet.</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {pastReviews.map(r => (
+              <div key={r._id} style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "0.75rem" }}>
+                <div className="row mb1" style={{ gap: 8 }}>
+                  <div className="av" style={{ width: 24, height: 24, fontSize: 10 }}>{r.reviewerId?.avatar || "U"}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{r.reviewerId?.name}</div>
+                  <div style={{ color: "var(--yellow)", fontSize: 12 }}>{"⭐".repeat(r.rating)}</div>
+                </div>
+                <div className="text-m" style={{ fontSize: 13 }}>{r.comment || "No comment provided."}</div>
+                <div className="text-s mt1" style={{ fontSize: 11, opacity: 0.7 }}>For: {r.serviceId?.title || "Custom Service"}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button className="btn btn-o mt2" style={{ width: "100%", justifyContent: "center" }} onClick={close}>Close</button>
+    </div>
+  );
+}
+
+// ─── REVIEW MODAL ────────────────────────────────────────────────────────────
+export function ReviewModal({ booking, refreshUser, notify, close }) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+
+  const submit = async () => {
+    try {
+      await api.submitReview({ bookingId: booking._id, rating, comment });
+      notify("Review submitted successfully!");
+      if (refreshUser) refreshUser();
+      close();
+    } catch (e) { notify(e.message, "error"); }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Leave a Review</div>
+      <p className="text-s mb2">Rate your experience with this service provider.</p>
+      
+      <div className="field">
+        <label>Rating</label>
+        <div className="row" style={{ gap: 8 }}>
+          {[1, 2, 3, 4, 5].map(r => (
+            <button key={r} className="btn" style={{ background: r <= rating ? "var(--yellow)" : "var(--bg)", color: r <= rating ? "#000" : "var(--text)" }} onClick={() => setRating(r)}>
+              {r} ⭐
+            </button>
+          ))}
+        </div>
+      </div>
+      
+      <div className="field">
+        <label>Comment (optional)</label>
+        <textarea className="fi" rows={3} value={comment} onChange={e => setComment(e.target.value)} placeholder="How was the service?" style={{ resize: "vertical" }} />
+      </div>
+
+      <div className="row mt2" style={{ gap: 8 }}>
+        <button className="btn btn-p" onClick={submit} style={{ flex: 1 }}>Submit Review</button>
+        <button className="btn btn-o" onClick={close}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── SOS MODAL ───────────────────────────────────────────────────────────────
 export function SosModal({ emergency, close, notify }) {
   return (
@@ -2234,12 +2417,15 @@ export function AddContactModal({ user, close, notify, setEmergency }) {
 export function EditProfileModal({ user, refreshUser, close, notify }) {
   const [name, setName] = useState(user.name);
   const [bio, setBio] = useState(user.bio);
+  const [education, setEducation] = useState(user.education || "");
+  const [interestsStr, setInterestsStr] = useState(user.interests ? user.interests.join(", ") : "");
 
   const handleSave = async () => {
     if (!name.trim()) { notify("Name is required", "error"); return; }
     try {
       const av = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-      await api.updateUser(user._id, { name, bio, avatar: av });
+      const interests = interestsStr.split(",").map(i => i.trim()).filter(i => i);
+      await api.updateUser(user._id, { name, bio, education, interests, avatar: av });
       await refreshUser();
       close();
       notify("Profile updated!");
@@ -2254,8 +2440,16 @@ export function EditProfileModal({ user, refreshUser, close, notify }) {
         <input className="fi" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       <div className="field">
+        <label>Education / College</label>
+        <input className="fi" value={education} onChange={(e) => setEducation(e.target.value)} placeholder="e.g. B.Tech Computer Science, MIT" />
+      </div>
+      <div className="field">
+        <label>Interests (comma separated)</label>
+        <input className="fi" value={interestsStr} onChange={(e) => setInterestsStr(e.target.value)} placeholder="e.g. Machine Learning, Design, Music" />
+      </div>
+      <div className="field">
         <label>Bio</label>
-        <textarea className="fi" rows={3} value={bio} onChange={(e) => setBio(e.target.value)} style={{ resize: "vertical" }} />
+        <textarea className="fi" rows={3} value={bio} onChange={(e) => setBio(e.target.value)} style={{ resize: "vertical" }} placeholder="Describe your background and what you offer/need..." />
       </div>
       <button className="btn btn-p" onClick={handleSave}>Save changes</button>
     </div>
@@ -2491,7 +2685,7 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
 }
 
 // ─── SERVICE DETAIL MODAL ────────────────────────────────────────────────────
-export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser, load }) {
+export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser, load, setModal }) {
   const [dt, setDt] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -2533,9 +2727,9 @@ export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, na
       <div className="mo-t" style={{ marginTop: svc.images && svc.images.length > 0 ? 0 : "" }}>{svc.title}</div>
       {prov && (
         <div className="row mb1">
-          <div className="av">{prov.avatar}</div>
+          <div className="av" style={{ cursor: "pointer" }} onClick={() => setModal && setModal(<ProviderProfileModal userId={prov._id} notify={notify} close={() => setModal(null)} />)}>{prov.avatar}</div>
           <div>
-            <div style={{ fontWeight: 700 }}>{prov.name}</div>
+            <div style={{ fontWeight: 700, cursor: "pointer" }} onClick={() => setModal && setModal(<ProviderProfileModal userId={prov._id} notify={notify} close={() => setModal(null)} />)}>{prov.name}</div>
             <div className="text-m" style={{ fontSize: 12 }}>★ {prov.rep || "New"} · {prov.reviews} reviews</div>
           </div>
         </div>
@@ -2604,6 +2798,114 @@ export function CreateAdminModal({ close, notify, refresh }) {
         <CollegeAutocomplete value={form.college} onChange={val => setForm({...form, college: val})} placeholder="e.g. Global Academy" />
       </div>
       <button className="btn btn-p" onClick={handleCreate} style={{ width: "100%", marginTop: 10 }}>Create Admin</button>
+    </div>
+  );
+}
+
+// ─── AI CHAT WIDGET ────────────────────────────────────────────────────────────
+export function AiChatWidget({ user }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: "model", text: "Hi! I'm the TimeBank AI Assistant. How can I help you today?" }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    if (open && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, open]);
+
+  const send = async () => {
+    if (!input.trim()) return;
+    const userMsg = { role: "user", text: input.trim() };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const history = messages.map(m => ({ role: m.role, text: m.text }));
+      const res = await api.sendAiChatMessage(history, userMsg.text);
+      setMessages(prev => [...prev, { role: "model", text: res.reply }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "model", text: "Oops, something went wrong. 🤖" }]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            style={{ 
+              width: 320, height: 400, background: "var(--bg)", boxSizing: "border-box", 
+              border: "1px solid var(--border)", borderRadius: 12, 
+              boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
+              marginBottom: 16, display: "flex", flexDirection: "column",
+              overflow: "hidden"
+            }}
+          >
+            <div style={{ flexShrink: 0, background: "rgba(139,92,246,0.1)", padding: "12px 16px", borderBottom: "1px solid rgba(139,92,246,0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 600, color: "var(--purple)", display: "flex", alignItems: "center", gap: 6 }}>
+                🤖 AI Assistant
+              </div>
+              <button onClick={() => setOpen(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+            
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {messages.map((m, i) => (
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%" }}>
+                  <div style={{ 
+                    background: m.role === "user" ? "var(--purple)" : "rgba(255,255,255,0.05)",
+                    color: m.role === "user" ? "#fff" : "var(--text)",
+                    padding: "8px 12px", borderRadius: 12, fontSize: 13, lineHeight: 1.5,
+                    borderBottomRightRadius: m.role === "user" ? 4 : 12,
+                    borderBottomLeftRadius: m.role === "model" ? 4 : 12,
+                  }}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {loading && <div style={{ alignSelf: "flex-start", fontSize: 12, color: "var(--text-muted)" }}>Typing...</div>}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div style={{ flexShrink: 0, padding: 12, borderTop: "1px solid var(--border)", display: "flex", gap: 8, boxSizing: "border-box" }}>
+              <input 
+                className="fi" 
+                style={{ margin: 0, flex: 1, color: "#fff", background: "rgba(255,255,255,0.1)", boxSizing: "border-box" }} 
+                placeholder="Ask me anything..." 
+                value={input} 
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && send()}
+              />
+              <button className="btn btn-p" style={{ padding: "0 12px" }} onClick={send}>Send</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button 
+        onClick={() => setOpen(!open)}
+        style={{
+          width: 50, height: 50, borderRadius: 25, 
+          background: "var(--purple)", color: "#fff", 
+          border: "none", cursor: "pointer", 
+          boxShadow: "0 4px 12px rgba(139,92,246,0.4)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 24, transition: "transform 0.2s"
+        }}
+        onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
+        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+      >
+        {open ? "✕" : "🤖"}
+      </button>
     </div>
   );
 }
