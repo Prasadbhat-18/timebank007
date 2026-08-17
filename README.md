@@ -31,8 +31,8 @@ Deploy the root repository to Netlify / Vercel:
 
 1. Create a `.env` file at the root:
    ```env
-   MONGODB_URI=mongodb+srv://pnb580_db_user:mLAOPr7cH4zxE7mJ@cluster0.ngfpvkp.mongodb.net/timebank?appName=Cluster0
-   PORT=5000
+   MONGODB_URI=mongodb+srv://db_user:mLAOPr7cH4zxE7mJ@cluster0.ngfpvkp.mongodb.net/timebank?appName=Cluster0
+   PORT=4000
    ```
 2. Start the backend server:
    ```bash
