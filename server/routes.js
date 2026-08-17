@@ -3,9 +3,12 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import {
   User, Skill, Service, Booking, Transaction,
-  Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain,
+  Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain, FraudReview,
 } from "./models.js";
 import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
+import {
+  hashIdentifier, euclideanDistance, checkDuplicateRegistration, calculateTransactionRisk,
+} from "./fraudService.js";
 import fs from "fs";
 import path from "path";
 
@@ -289,23 +292,20 @@ r.post("/auth/login", async (req, res) => {
 
 r.post("/auth/register", async (req, res) => {
   try {
-    const { name, email, password, bio, wallet, referralCode: refCode, college, faceDescriptor, deviceFingerprint } = req.body;
+    const { name, email, password, bio, wallet, referralCode: refCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber } = req.body;
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
 
-    // Face descriptor is mandatory for fraud prevention
-    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
-      return res.status(400).json({ error: "Face verification is required to register. Please capture your face." });
-    }
+    // 1. Run multi-layered fraud detection engine
+    const fraudCheck = await checkDuplicateRegistration({
+      email, phone, collegeIdNumber, faceDescriptor, deviceFingerprint, ip,
+    });
 
-    const exists = await User.findOne({ email: email.toLowerCase() });
-    if (exists) return res.status(409).json({ error: "Email already registered" });
-
-    // Check if this face is already registered (prevent duplicate accounts)
-    const allUsersWithFace = await User.find({ faceDescriptor: { $exists: true, $ne: [] } });
-    for (const existing of allUsersWithFace) {
-      const dist = euclideanDistance(faceDescriptor, existing.faceDescriptor);
-      if (dist <= FACE_MATCH_THRESHOLD) {
-        return res.status(409).json({ error: "This face is already associated with another account. Duplicate registrations are not allowed." });
-      }
+    if (fraudCheck.blocked) {
+      return res.status(409).json({
+        error: "We could not create this account — it matches an existing identity or security policy violation.",
+        code: "DUPLICATE_ACCOUNT",
+        reasons: fraudCheck.reasons,
+      });
     }
 
     const avatar = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
@@ -325,15 +325,40 @@ r.post("/auth/register", async (req, res) => {
       if (referrer) referredBy = refCode.toUpperCase();
     }
 
+    const phoneHash = phone ? hashIdentifier(phone) : undefined;
+    const idNumberHash = collegeIdNumber ? hashIdentifier(collegeIdNumber) : undefined;
+
     const user = await User.create({
-      name, email: email.toLowerCase(), password, bio, avatar,
+      name, email: email.toLowerCase(), password, bio, avatar, college,
       role: "user", wallet: wallet || "", credits: 10, earned: 0, spent: 0,
       aictePoints: 0, rep: 0, reviews: 0,
       level: 1, xp: 0, referralCode, referredBy,
       welcomeShown: false,
       faceDescriptor,
       deviceFingerprints: deviceFingerprint ? [deviceFingerprint] : [],
+      phoneHash, idNumberHash, registrationIp: ip,
+      verificationStatus: fraudCheck.flagged ? "flagged" : "verified",
+      riskScore: fraudCheck.riskScore,
+      flaggedReasons: fraudCheck.reasons,
     });
+
+    // If soft flagged (score 40..99), queue for Admin Review
+    if (fraudCheck.flagged) {
+      await FraudReview.create({
+        type: "user",
+        targetId: user._id,
+        userId: user._id,
+        riskScore: fraudCheck.riskScore,
+        reasons: fraudCheck.reasons,
+        status: "pending",
+      });
+
+      await createNotification(user._id, "warning",
+        "Account Flagged for Verification ⚠️",
+        "Your account triggered a soft security check (e.g. shared device/network). An administrator will review your account shortly.",
+        { reasons: fraudCheck.reasons }
+      );
+    }
 
     // Generate blockchain receipt for welcome bonus
     const { txHash, blockNumber } = generateMockTx();
@@ -660,9 +685,24 @@ r.get("/bookings/user/:userId", async (req, res) => {
 
 r.post("/bookings", async (req, res) => {
   try {
-    const { requesterId, providerId, hours } = req.body;
+    const { requesterId, providerId, hours, deviceFingerprint } = req.body;
     const requester = await User.findById(requesterId);
     if (!requester) return res.status(404).json({ error: "Requester not found" });
+
+    // Transaction Fraud & Wash-Trading Check
+    const txRisk = await calculateTransactionRisk({
+      senderId: requesterId,
+      receiverId: providerId,
+      deviceFingerprint,
+    });
+
+    if (txRisk.blocked) {
+      return res.status(403).json({
+        error: `Booking blocked due to security risk detection (${txRisk.reasons.join(", ")}).`,
+        code: "TRANSACTION_RISK_BLOCKED",
+        reasons: txRisk.reasons,
+      });
+    }
 
     // Check restriction
     if (requester.restrictionUntil && new Date(requester.restrictionUntil) > new Date()) {
@@ -1738,6 +1778,93 @@ r.put("/college-admin/users/:id/restriction", requireAuth, requireRole(["college
 
     await user.save();
     res.json(user);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── ADMIN FRAUD QUEUE ENDPOINTS ─────────────────────────────────────────────
+r.get("/website-admin/fraud-queue", requireAuth, requireRole(["websiteAdmin"]), async (_req, res) => {
+  try {
+    const items = await FraudReview.find({ status: "pending" })
+      .populate("userId", "name email college faceDescriptor verificationStatus riskScore flaggedReasons")
+      .populate("senderId", "name email")
+      .populate("receiverId", "name email")
+      .sort({ createdAt: -1 });
+    res.json(items);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/website-admin/fraud-review/:id/action", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
+  try {
+    const { action, note } = req.body; // action: "approve" | "block"
+    const item = await FraudReview.findById(req.params.id);
+    if (!item) return res.status(404).json({ error: "Fraud review item not found" });
+
+    item.status = action === "approve" ? "approved" : "rejected";
+    item.reviewedBy = req.user.id;
+    item.reviewedAt = new Date();
+    item.note = note || "";
+    await item.save();
+
+    if (item.type === "user" && item.userId) {
+      const user = await User.findById(item.userId);
+      if (user) {
+        if (action === "approve") {
+          user.verificationStatus = "verified";
+          user.riskScore = 0;
+          await user.save();
+          await createNotification(user._id, "welcome", "Account Verified ✅", "An administrator has verified your account.", {});
+        } else if (action === "block") {
+          user.verificationStatus = "rejected";
+          user.isBlocked = true;
+          await user.save();
+          await createNotification(user._id, "restriction", "Account Suspended 🚫", "Your account has been rejected following fraud review.", {});
+        }
+      }
+    }
+    res.json(item);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.get("/college-admin/fraud-queue", requireAuth, requireRole(["collegeAdmin"]), async (req, res) => {
+  try {
+    const collegeUsers = await User.find({ college: req.user.college }).select("_id");
+    const userIds = collegeUsers.map((u) => u._id);
+    const items = await FraudReview.find({ status: "pending", userId: { $in: userIds } })
+      .populate("userId", "name email college verificationStatus riskScore flaggedReasons")
+      .sort({ createdAt: -1 });
+    res.json(items);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/college-admin/fraud-review/:id/action", requireAuth, requireRole(["collegeAdmin"]), async (req, res) => {
+  try {
+    const { action, note } = req.body;
+    const item = await FraudReview.findById(req.params.id);
+    if (!item) return res.status(404).json({ error: "Fraud review item not found" });
+
+    item.status = action === "approve" ? "approved" : "rejected";
+    item.reviewedBy = req.user.id;
+    item.reviewedAt = new Date();
+    item.note = note || "";
+    await item.save();
+
+    if (item.type === "user" && item.userId) {
+      const user = await User.findById(item.userId);
+      if (user) {
+        if (action === "approve") {
+          user.verificationStatus = "verified";
+          user.riskScore = 0;
+          await user.save();
+          await createNotification(user._id, "welcome", "Account Verified ✅", "Your college admin has verified your account.", {});
+        } else if (action === "block") {
+          user.verificationStatus = "rejected";
+          user.isBlocked = true;
+          await user.save();
+          await createNotification(user._id, "restriction", "Account Suspended 🚫", "Your account has been rejected following fraud review.", {});
+        }
+      }
+    }
+    res.json(item);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

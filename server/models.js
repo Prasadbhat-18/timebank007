@@ -76,6 +76,14 @@ const userSchema = new Schema({
   // ── Face & Device Verification ──
   faceDescriptor:     [{ type: Number }],           // 128-dim face embedding from face-api.js
   deviceFingerprints: [{ type: String }],            // known FingerprintJS visitorIds
+
+  // ── Fraud & Multi-Layer Security ──
+  phoneHash:          { type: String, sparse: true },
+  idNumberHash:       { type: String, sparse: true },
+  registrationIp:     { type: String, default: "" },
+  verificationStatus: { type: String, enum: ["pending", "verified", "flagged", "rejected"], default: "pending" },
+  riskScore:          { type: Number, default: 0 },
+  flaggedReasons:     [{ type: String }],
 }, { timestamps: true });
 
 // ─── Skill ───────────────────────────────────────────────────────────────────
@@ -211,6 +219,22 @@ const blockchainSchema = new Schema({
   type:    { type: String, required: true }, // TRANSFER, MINT
 }, { timestamps: true });
 
+// ─── Fraud Review ─────────────────────────────────────────────────────────────
+const fraudReviewSchema = new Schema({
+  type:       { type: String, enum: ["user", "transaction", "booking"], required: true },
+  targetId:   { type: Schema.Types.ObjectId, required: true },
+  userId:     { type: Schema.Types.ObjectId, ref: "User", default: null },
+  senderId:   { type: Schema.Types.ObjectId, ref: "User", default: null },
+  receiverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+  bookingId:  { type: Schema.Types.ObjectId, ref: "Booking", default: null },
+  riskScore:  { type: Number, required: true },
+  reasons:    [{ type: String }],
+  status:     { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+  reviewedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+  reviewedAt: { type: Date, default: null },
+  note:       { type: String, default: "" },
+}, { timestamps: true });
+
 // ─── Export Models ───────────────────────────────────────────────────────────
 export const User         = model("User", userSchema);
 export const Skill        = model("Skill", skillSchema);
@@ -224,3 +248,4 @@ export const Aicte        = model("Aicte", aicteSchema);
 export const Chat         = model("Chat", chatSchema);
 export const Emergency    = model("Emergency", emergencySchema);
 export const Blockchain   = model("Blockchain", blockchainSchema);
+export const FraudReview  = model("FraudReview", fraudReviewSchema);

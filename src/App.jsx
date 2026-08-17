@@ -358,7 +358,7 @@ export default function App() {
   };
 
   // Register
-  const doRegister = async (name, email, pass, bio, college, faceDescriptor) => {
+  const doRegister = async (name, email, pass, bio, college, faceDescriptor, phone, collegeIdNumber) => {
     try {
       if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
         notify("Face verification is required to create an account.", "error");
@@ -366,7 +366,7 @@ export default function App() {
       }
       let rc = localStorage.getItem("referralCode") || undefined;
       const deviceFingerprint = await getDeviceFingerprint();
-      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college, faceDescriptor, deviceFingerprint);
+      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber);
       localStorage.setItem("token", token);
       
       const keyName = "tb_key_" + u._id;
@@ -1179,6 +1179,7 @@ function Auth({ doLogin, doRegister, clockAngle }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
   const [le, setLe] = useState(""), [lp, setLp] = useState("");
   const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState(""), [rc, setRc] = useState("");
+  const [rphone, setRphone] = useState(""), [rpin, setRpin] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1209,7 +1210,7 @@ function Auth({ doLogin, doRegister, clockAngle }) {
     setError("");
     setLoading(true);
     try {
-      await doRegister(rn, re, rp, rb, rc, faceDescriptor);
+      await doRegister(rn, re, rp, rb, rc, faceDescriptor, rphone, rpin);
     } catch (e) {
       setError(e.message || "Failed to create account");
     } finally {
@@ -1276,6 +1277,8 @@ function Auth({ doLogin, doRegister, clockAngle }) {
               <div className="field"><label>Email</label><input className="fi" type="email" value={re} onChange={(e) => setRe(e.target.value)} placeholder="your@email.com" /></div>
               <div className="field"><label>Password</label><input className="fi" type="password" value={rp} onChange={(e) => setRp(e.target.value)} placeholder="Min 6 characters" /></div>
               <div className="field"><label>College/Institution Name</label><CollegeAutocomplete value={rc} onChange={setRc} placeholder="e.g. Global Academy" /></div>
+              <div className="field"><label>Phone Number (Hashed Security Match)</label><input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="e.g. +91 9876543210" /></div>
+              <div className="field"><label>College ID / Roll No. (Hashed Security Match)</label><input className="fi" value={rpin} onChange={(e) => setRpin(e.target.value)} placeholder="e.g. 1GA21CS045" /></div>
               <div className="field"><label>Bio</label><input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Brief intro..." /></div>
               
               {/* Mandatory Face Verification */}
@@ -2096,6 +2099,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
   const [stats, setStats] = useState(null);
   const [pendingAicte, setPendingAicte] = useState([]);
   const [allBookings, setAllBookings] = useState([]);
+  const [fraudQueue, setFraudQueue] = useState([]);
   const [tab, setTab] = useState("overview");
   const [institutionAdmins, setInstitutionAdmins] = useState([]);
   const [aicteInputs, setAicteInputs] = useState({});
@@ -2105,6 +2109,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
     api.fetchAdminStats(prefix).then(setStats).catch(() => {});
     api.fetchAllAicte().then((all) => setPendingAicte(all.filter((a) => !a.verified))).catch(() => {});
     api.fetchAllBookings().then(setAllBookings).catch(() => {});
+    api.fetchFraudQueue(prefix).then(setFraudQueue).catch(() => {});
     
     if (prefix === "website-admin") {
       api.fetchInstitutionAdmins().then(setInstitutionAdmins).catch(() => {});
@@ -2166,6 +2171,15 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
     } catch (e) { notify(e.message, "error"); }
   };
 
+  const handleResolveFraud = async (id, action) => {
+    try {
+      await api.resolveFraudItem(prefix, id, action);
+      notify(action === "approve" ? "Account verified & flag cleared!" : "Account blocked & flag resolved");
+      setFraudQueue((prev) => prev.filter((x) => x._id !== id));
+      if (refreshUser) refreshUser();
+    } catch (e) { notify(e.message, "error"); }
+  };
+
   const allUsers = users.filter((u) => u.role !== "websiteAdmin" && u.role !== "collegeAdmin");
 
   return (
@@ -2187,9 +2201,9 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       )}
 
       <div className="tab-bar">
-        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", ...(prefix === "website-admin" ? ["admins", "ml_dashboard"] : [])].map((t) => (
+        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", "fraud", ...(prefix === "website-admin" ? ["admins", "ml_dashboard"] : [])].map((t) => (
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-            {t.charAt(0).toUpperCase() + t.slice(1)} {t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
+            {t === "fraud" ? "🛡️ Fraud Queue" : t.charAt(0).toUpperCase() + t.slice(1)} {t === "fraud" && fraudQueue.length > 0 ? `(${fraudQueue.length})` : t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
           </button>
         ))}
       </div>
@@ -2201,6 +2215,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
             { l: "Services", v: stats.services },
             { l: "Bookings", v: stats.bookings },
             { l: "Transactions", v: stats.transactions },
+            { l: "Pending Fraud Items", v: fraudQueue.length, c: fraudQueue.length > 0 ? "text-a" : "" },
             ...(prefix === "college-admin" ? [{ l: "Pending AICTE", v: stats.pendingAicte, c: stats.pendingAicte > 0 ? "text-a" : "" }] : []),
             ...(prefix === "website-admin" ? [{ l: "Inst. Admins", v: institutionAdmins.length }] : [])
           ].map((st, i) => (
@@ -2209,6 +2224,64 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
               <div className={`stat-v ${st.c || ""}`}>{st.v}</div>
             </motion.div>
           ))}
+        </motion.div>
+      )}
+
+      {tab === "fraud" && (
+        <motion.div variants={stagger} initial="initial" animate="animate">
+          <h3 style={{ marginBottom: "1rem", color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+            <FaceVerifyIcon size={20} color="var(--em)" />
+            Fraud & Multi-Layer Security Queue ({fraudQueue.length})
+          </h3>
+          {fraudQueue.length === 0 ? (
+            <div className="empty">No flagged security items pending review. All accounts clean ✓</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {fraudQueue.map((item) => (
+                <motion.div key={item._id} className="card" variants={fadeUp()} style={{ background: "rgba(12, 15, 23, 0.8)", border: "1px solid rgba(239, 68, 68, 0.25)" }}>
+                  <div className="btwn mb1">
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="tag tr" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", fontWeight: 700 }}>
+                        Risk Score: {item.riskScore}
+                      </span>
+                      <span className="tag tp" style={{ textTransform: "uppercase" }}>{item.type}</span>
+                    </div>
+                    <span className="text-m" style={{ fontSize: 12 }}>{new Date(item.createdAt).toLocaleString()}</span>
+                  </div>
+
+                  {item.userId && (
+                    <div className="row mb1" style={{ gap: 12 }}>
+                      <div className="av">{item.userId.name ? item.userId.name.slice(0, 2).toUpperCase() : "U"}</div>
+                      <div>
+                        <div style={{ fontWeight: 700, color: "#fff" }}>{item.userId.name}</div>
+                        <div className="text-m" style={{ fontSize: 12 }}>{item.userId.email} · {item.userId.college || "No College"}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: "1.25rem" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Triggered Risk Factors:</div>
+                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      {item.reasons.map((r) => (
+                        <span key={r} className="tag" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.3)", fontSize: 11 }}>
+                          ⚠️ {r}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ gap: 10, justifyContent: "flex-end" }}>
+                    <button className="btn btn-g btn-sm" onClick={() => handleResolveFraud(item._id, "approve")}>
+                      ✓ Clear Flag & Approve
+                    </button>
+                    <button className="btn btn-d btn-sm" onClick={() => handleResolveFraud(item._id, "block")}>
+                      🚫 Suspend & Block Account
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </motion.div>
       )}
 

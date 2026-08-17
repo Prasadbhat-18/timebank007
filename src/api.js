@@ -31,8 +31,8 @@ async function req(path, opts = {}) {
 export const login = (email, password, faceDescriptor, deviceFingerprint) =>
   req("/auth/login", { method: "POST", body: JSON.stringify({ email, password, faceDescriptor, deviceFingerprint }) });
 
-export const register = (name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint) =>
-  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint }) });
+export const register = (name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber) =>
+  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber }) });
 
 export const websiteAdminLogin = (email, password) =>
   req("/auth/website-admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
@@ -188,3 +188,6 @@ export const adminUpdateLevel = (prefix, userId, data) =>
 export const createInstitutionAdmin = (data) =>
   req(`/website-admin/admins`, { method: "POST", body: JSON.stringify(data) });
 export const fetchInstitutionAdmins = () => req(`/website-admin/admins`);
+export const fetchFraudQueue = (prefix) => req(`/${prefix}/fraud-queue`);
+export const resolveFraudItem = (prefix, id, action, note) =>
+  req(`/${prefix}/fraud-review/${id}/action`, { method: "POST", body: JSON.stringify({ action, note }) });
