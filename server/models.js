@@ -17,6 +17,7 @@ const userSchema = new Schema({
   avatar:      { type: String, default: "" },        // initials or base64 image data URL
   avatarUrl:   { type: String, default: "" },         // uploaded profile picture URL/data URI
   role:        { type: String, enum: ["user", "collegeAdmin", "websiteAdmin"], default: "user" },
+  welcomeShown:{ type: Boolean, default: false },
   college:     { type: String, default: "" }, // Institution for scoping collegeAdmin capabilities
   wallet:      { type: String, default: "" },
   credits:     { type: Number, default: 10 },
@@ -71,6 +72,10 @@ const userSchema = new Schema({
   lastActiveAt:       { type: Date, default: Date.now },
   demotionWarned:     { type: Boolean, default: false },
   demotionWarningAt:  { type: Date, default: null },
+
+  // ── Face & Device Verification ──
+  faceDescriptor:     [{ type: Number }],           // 128-dim face embedding from face-api.js
+  deviceFingerprints: [{ type: String }],            // known FingerprintJS visitorIds
 }, { timestamps: true });
 
 // ─── Skill ───────────────────────────────────────────────────────────────────

@@ -5,6 +5,8 @@ import { AICTE_CFG } from "./store.js";
 import * as api from "./api.js";
 import * as chain from "./blockchain.js";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import FaceVerification from "./FaceVerification.jsx";
+import { getDeviceFingerprint } from "./fingerprint.js";
 
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
@@ -93,7 +95,21 @@ const SUGGESTED_COLLEGES = [
   "Stanford University",
   "Massachusetts Institute of Technology (MIT)",
   "Harvard University",
-  "Oxford University"
+  "Oxford University",
+  "Cambridge University",
+  "University of California, Berkeley",
+  "California Institute of Technology (Caltech)",
+  "Princeton University",
+  "Yale University",
+  "Columbia University",
+  "University of Chicago",
+  "University of Pennsylvania",
+  "Cornell University",
+  "University of Michigan",
+  "National University of Singapore",
+  "Nanyang Technological University",
+  "University of Tokyo",
+  "Tsinghua University"
 ];
 
 function CollegeAutocomplete({ value, onChange, placeholder }) {
@@ -161,6 +177,25 @@ const overlayVariants = {
 };
 
 // ─── ROOT APP ────────────────────────────────────────────────────────────────
+
+export function WelcomeBonusModal({ user, close }) {
+  return (
+    <div style={{ textAlign: "center", padding: "1rem" }}>
+      <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🎉</div>
+      <h2 style={{ color: "var(--green)", marginBottom: "1rem" }}>Welcome to TimeBank!</h2>
+      <p style={{ fontSize: "1.1rem", marginBottom: "1.5rem" }}>
+        As a special welcome gift, you've received <strong>10 Time Credits</strong> to get started!
+      </p>
+      <div className="card mb2" style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+        <p className="text-s" style={{ margin: 0, color: "var(--green)" }}>
+          <span style={{ fontWeight: 600 }}>Ledger Entry Created:</span> 10 credits minted directly to your account on the blockchain.
+        </p>
+      </div>
+      <button className="btn btn-p" style={{ width: "100%", justifyContent: "center" }} onClick={close}>Awesome, let's go!</button>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [wallet, setWallet] = useState(null); // { provider, signer, address, balance }
@@ -172,6 +207,23 @@ export default function App() {
   // Shared data cache
   const [skills, setSkills] = useState([]);
   const [users, setUsers] = useState([]);
+
+  // Check for welcome bonus on login
+  useEffect(() => {
+    if (user && user.role === "user" && user.welcomeShown === false) {
+      setModal(
+        <WelcomeBonusModal 
+          user={user} 
+          close={() => {
+            setModal(null);
+            setUser(prev => ({ ...prev, welcomeShown: true }));
+            api.markWelcomeShown(user._id).catch(console.error);
+          }} 
+        />
+      );
+    }
+  }, [user, setModal]);
+
 
   // Live clock
   useEffect(() => {
@@ -256,10 +308,14 @@ export default function App() {
   // Login
   const doLogin = async (email, pass) => {
     try {
-      const { token, user: u } = await api.login(email, pass);
+      const deviceFingerprint = await getDeviceFingerprint();
+      const { token, user: u, newDevice } = await api.login(email, pass, null, deviceFingerprint);
       localStorage.setItem("token", token);
       setUser(u);
       nav("dashboard");
+      if (newDevice) {
+        notify("Login from a new device detected 🔔", "warning");
+      }
       notify(`Welcome back, ${u.name.split(" ")[0]}!`);
     } catch (e) { notify(e.message, "error"); }
   };
@@ -285,10 +341,15 @@ export default function App() {
   };
 
   // Register
-  const doRegister = async (name, email, pass, bio, college) => {
+  const doRegister = async (name, email, pass, bio, college, faceDescriptor) => {
     try {
+      if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+        notify("Face verification is required to create an account.", "error");
+        return;
+      }
       let rc = localStorage.getItem("referralCode") || undefined;
-      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college);
+      const deviceFingerprint = await getDeviceFingerprint();
+      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college, faceDescriptor, deviceFingerprint);
       localStorage.setItem("token", token);
       
       const keyName = "tb_key_" + u._id;
@@ -1073,6 +1134,7 @@ function Auth({ doLogin, doRegister, clockAngle }) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [faceDescriptor, setFaceDescriptor] = useState(null);
 
   const cx = 34, cy = 34;
   const hx = cx + 14 * Math.sin((clockAngle.h * Math.PI) / 180);
@@ -1095,10 +1157,11 @@ function Auth({ doLogin, doRegister, clockAngle }) {
 
   const handleRegisterSubmit = async () => {
     if (!rn || !re || rp.length < 6) { setError("Full name, email and password (min 6 chars) are required"); return; }
+    if (!faceDescriptor) { setError("Face verification is required to create your account."); return; }
     setError("");
     setLoading(true);
     try {
-      await doRegister(rn, re, rp, rb, rc);
+      await doRegister(rn, re, rp, rb, rc, faceDescriptor);
     } catch (e) {
       setError(e.message || "Failed to create account");
     } finally {
@@ -1166,8 +1229,12 @@ function Auth({ doLogin, doRegister, clockAngle }) {
               <div className="field"><label>Password</label><input className="fi" type="password" value={rp} onChange={(e) => setRp(e.target.value)} placeholder="Min 6 characters" /></div>
               <div className="field"><label>College/Institution Name</label><CollegeAutocomplete value={rc} onChange={setRc} placeholder="e.g. Global Academy" /></div>
               <div className="field"><label>Bio</label><input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Brief intro..." /></div>
-              <button className="btn btn-p" onClick={handleRegisterSubmit} disabled={loading}>
-                {loading ? "Creating account..." : "Create account"}
+              
+              {/* Mandatory Face Verification */}
+              <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
+
+              <button className="btn btn-p" onClick={handleRegisterSubmit} disabled={loading || !faceDescriptor}>
+                {loading ? "Creating account..." : !faceDescriptor ? "Face scan required to continue" : "Create account"}
               </button>
             </>
           )}
@@ -1406,6 +1473,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
   const [loading, setLoading] = useState(true);
 
   const [recommendations, setRecommendations] = useState([]);
+  const [mlRecommendations, setMlRecommendations] = useState([]);
   
   const load = useCallback(() => {
     setLoading(true);
@@ -1413,6 +1481,29 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
     api.fetchRecommendations().then(r => setRecommendations(r)).catch(console.error);
   }, []);
   useEffect(load, [load]);
+
+  // Debounced search for ML recommendations
+  useEffect(() => {
+    if (search.trim().length >= 2) {
+      const timer = setTimeout(() => {
+        api.fetchMLRecommendations(search)
+          .then(res => {
+            if (res && res.recommendations) {
+              setMlRecommendations(res.recommendations.filter(r => r.user_id !== user._id));
+            } else {
+              setMlRecommendations([]);
+            }
+          })
+          .catch(e => {
+            console.error("ML Rec error:", e);
+            setMlRecommendations([]);
+          });
+      }, 500);
+      return () => clearTimeout(timer);
+    } else {
+      setMlRecommendations([]);
+    }
+  }, [search, user._id]);
 
   const cats = [...new Set(skills.map((s) => s.category))];
   let svcs = services.filter((s) => s.status === "active");
@@ -1458,16 +1549,46 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
         <div className={`chip${filter === "all" ? " on" : ""}`} onClick={() => setFilter("all")}>All</div>
         {cats.map((c) => <div key={c} className={`chip${filter === c ? " on" : ""}`} onClick={() => setFilter(c)}>{c}</div>)}
       </div>
+      
+      {search && mlRecommendations.length > 0 && (
+        <div className="mb2">
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "var(--purple)", fontSize: "1.2rem" }}>✨</span> AI Recommended Matches
+          </h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: "1rem" }}>
+            {mlRecommendations.map((match) => {
+              const provServices = services.filter(s => s.providerId === match.user_id && s.status === "active");
+              const targetService = provServices.find(s => s.title.toLowerCase().includes(search.toLowerCase()) || s.description.toLowerCase().includes(search.toLowerCase())) || provServices[0];
+              const matchPct = (match.match_score * 100).toFixed(0);
+              return (
+                <motion.div key={match.user_id} className="card" whileHover={{ y: -2 }} onClick={() => targetService ? openDetail(targetService) : notify("User has no active services for this skill", "warning")} style={{ border: "1px solid rgba(139,92,246,0.5)", background: "linear-gradient(to bottom right, rgba(139,92,246,0.08), transparent)", cursor: targetService ? "pointer" : "default" }}>
+                  <div className="btwn mb1">
+                    <div className="row"><div className="av-sm">{match.avatar || "U"}</div><span style={{ fontWeight: 600 }}>{match.name}</span></div>
+                    <div className="tag tp" style={{ fontWeight: "bold" }}>{matchPct}% Match</div>
+                  </div>
+                  <div className="text-s mb1" style={{ color: "var(--text-m)" }}>
+                    <span style={{ color: "var(--yellow)" }}>{"⭐".repeat(Math.round(match.rating) || 1)}</span> ({match.experience_years}y exp)
+                  </div>
+                  <div className="text-s clamp" style={{ flex: 1, minHeight: 40 }}>
+                    Skills: {match.skills.join(", ") || "None"}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {recommendations.length > 0 && filter === "all" && !search && (
         <div className="mb2">
           <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "var(--purple)", fontSize: "1.2rem" }}>🤖</span> AI Recommended for You
+            <span style={{ color: "var(--purple)", fontSize: "1.2rem" }}>🤖</span> Featured For You
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: "1rem" }}>
             {recommendations.map((s) => {
               const prov = getU(s.providerId), sk = getSk(s.skillId);
               return (
-                <motion.div key={s._id} className="card" whileHover={{ y: -2 }} onClick={() => openDetail(s)} style={{ border: "1px solid rgba(139,92,246,0.3)", background: "linear-gradient(to bottom right, rgba(139,92,246,0.05), transparent)" }}>
+                <motion.div key={s._id} className="card" whileHover={{ y: -2 }} onClick={() => openDetail(s)} style={{ border: "1px solid rgba(139,92,246,0.3)", background: "linear-gradient(to bottom right, rgba(139,92,246,0.05), transparent)", cursor: "pointer" }}>
                   <div className="card-tag" style={{ background: "var(--purple-bg)", color: "var(--purple)" }}>{s.category}</div>
                   <h3>{s.title}</h3>
                   <p className="text-s clamp mb1" style={{ flex: 1 }}>{s.description}</p>
@@ -1489,7 +1610,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
           {svcs.map((s) => {
             const prov = getU(s.providerId), sk = getSk(s.skillId);
             return (
-              <motion.div key={s._id} className="svc-card" onClick={() => openDetail(s)} variants={fadeUp()} {...cardHover}>
+              <motion.div key={s._id} className="svc-card" onClick={() => openDetail(s)} variants={fadeUp()} {...cardHover} style={{ cursor: "pointer" }}>
                 {s.images && s.images.length > 0 && (
                   <ImageSlider images={s.images} />
                 )}
@@ -1506,7 +1627,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
   );
 }
 
-// ─── BOOKINGS ────────────────────────────────────────────────────────────────
+// ─── BOOKINGS────────────────────────────────────────────────────────────────
 function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
   const [bookings, setBookings] = useState([]);
   const [tab, setTab] = useState("all");
@@ -2001,7 +2122,10 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
 
   return (
     <div className="inner">
-      <div className="ph"><h1>Admin Panel</h1><p>Platform administration</p></div>
+      <div className="ph btwn">
+        <div><h1>Admin Panel</h1><p>Platform administration</p></div>
+        <button className="btn btn-g" onClick={() => setModal(<EditProfileModal user={user} refreshUser={refreshUser} close={() => setModal(null)} notify={notify} isAdminProfile={true} />)}>Edit Profile</button>
+      </div>
 
       {!wallet && (
         <motion.div className="card mb2" style={{ borderColor: "var(--em-border)" }} {...fadeUp()}>
@@ -2015,7 +2139,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       )}
 
       <div className="tab-bar">
-        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", ...(prefix === "website-admin" ? ["admins"] : [])].map((t) => (
+        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", ...(prefix === "website-admin" ? ["admins", "ml_dashboard"] : [])].map((t) => (
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)} {t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
           </button>
@@ -2212,7 +2336,7 @@ export function ImageSlider({ images }) {
 }
 
 // ─── PROVIDER PROFILE MODAL ────────────────────────────────────────────────────
-export function ProviderProfileModal({ userId, notify, close }) {
+export function ProviderProfileModal({ userId, notify, close, isAdminView }) {
   const [profile, setProfile] = useState(null);
   
   useEffect(() => {
@@ -2282,6 +2406,11 @@ export function ProviderProfileModal({ userId, notify, close }) {
       </div>
 
       <button className="btn btn-o mt2" style={{ width: "100%", justifyContent: "center" }} onClick={close}>Close</button>
+      {isAdminView && (!user.bio || !user.college || !user.wallet) && (
+        <button className="btn btn-p mt1" style={{ width: "100%", justifyContent: "center", background: "var(--purple)", color: "white" }} onClick={() => notify(`Requested missing details from ${user.name}`)}>
+          Request Missing Details
+        </button>
+      )}
     </div>
   );
 }

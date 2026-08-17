@@ -6,6 +6,8 @@ import {
   Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain,
 } from "./models.js";
 import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
+import fs from "fs";
+import path from "path";
 
 const r = Router();
 
@@ -95,6 +97,13 @@ function generateMockTx() {
   const blockNumber = 45620000 + Math.floor(Math.random() * 9000);
   return { txHash, blockNumber };
 }
+
+// Euclidean distance between two face descriptors (128-dim vectors)
+function euclideanDistance(a, b) {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  return Math.sqrt(a.reduce((sum, val, i) => sum + (val - b[i]) ** 2, 0));
+}
+const FACE_MATCH_THRESHOLD = 0.6; // lower = stricter
 
 // Compute the correct level for a user based on XP and rating
 function computeLevel(user) {
@@ -245,7 +254,7 @@ export async function seedAdmin() {
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 r.post("/auth/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, faceDescriptor, deviceFingerprint } = req.body;
     const user = await User.findOne({ email: email.toLowerCase(), password });
     if (!user) return res.status(401).json({ error: "Invalid email or password" });
 
@@ -253,20 +262,51 @@ r.post("/auth/login", async (req, res) => {
       return res.status(403).json({ error: "Your account has been suspended/blocked due to policy violations." });
     }
 
+    // Face match check (if user has enrolled a face and descriptor was provided)
+    let faceMatch = null;
+    if (faceDescriptor && Array.isArray(faceDescriptor) && user.faceDescriptor && user.faceDescriptor.length === 128) {
+      const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
+      faceMatch = dist <= FACE_MATCH_THRESHOLD;
+    }
+
+    // Track device fingerprint
+    let newDevice = false;
+    if (deviceFingerprint) {
+      if (!user.deviceFingerprints.includes(deviceFingerprint)) {
+        user.deviceFingerprints.push(deviceFingerprint);
+        newDevice = true;
+      }
+    }
+
     // Update last active
     user.lastActiveAt = new Date();
     await user.save();
 
     const token = generateToken(user);
-    res.json({ token, user });
+    res.json({ token, user, faceMatch, newDevice });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.post("/auth/register", async (req, res) => {
   try {
-    const { name, email, password, bio, wallet, referralCode: refCode, college } = req.body;
+    const { name, email, password, bio, wallet, referralCode: refCode, college, faceDescriptor, deviceFingerprint } = req.body;
+
+    // Face descriptor is mandatory for fraud prevention
+    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      return res.status(400).json({ error: "Face verification is required to register. Please capture your face." });
+    }
+
     const exists = await User.findOne({ email: email.toLowerCase() });
     if (exists) return res.status(409).json({ error: "Email already registered" });
+
+    // Check if this face is already registered (prevent duplicate accounts)
+    const allUsersWithFace = await User.find({ faceDescriptor: { $exists: true, $ne: [] } });
+    for (const existing of allUsersWithFace) {
+      const dist = euclideanDistance(faceDescriptor, existing.faceDescriptor);
+      if (dist <= FACE_MATCH_THRESHOLD) {
+        return res.status(409).json({ error: "This face is already associated with another account. Duplicate registrations are not allowed." });
+      }
+    }
 
     const avatar = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
 
@@ -291,6 +331,8 @@ r.post("/auth/register", async (req, res) => {
       aictePoints: 0, rep: 0, reviews: 0,
       level: 1, xp: 0, referralCode, referredBy,
       welcomeShown: false,
+      faceDescriptor,
+      deviceFingerprints: deviceFingerprint ? [deviceFingerprint] : [],
     });
 
     // Generate blockchain receipt for welcome bonus
@@ -338,6 +380,46 @@ r.post("/auth/college-admin-login", async (req, res) => {
     if (!user) return res.status(401).json({ error: "Invalid college admin credentials" });
     const token = generateToken(user);
     res.json({ token, user });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── FACE VERIFICATION ENDPOINTS ──────────────────────────────────────────────
+
+// Enroll or update face descriptor (authenticated)
+r.post("/auth/face-verify", requireAuth, async (req, res) => {
+  try {
+    const { faceDescriptor } = req.body;
+    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      return res.status(400).json({ error: "Invalid face descriptor" });
+    }
+
+    // Check if this face belongs to a different user
+    const allUsersWithFace = await User.find({ faceDescriptor: { $exists: true, $ne: [] }, _id: { $ne: req.user.id } });
+    for (const existing of allUsersWithFace) {
+      const dist = euclideanDistance(faceDescriptor, existing.faceDescriptor);
+      if (dist <= FACE_MATCH_THRESHOLD) {
+        return res.status(409).json({ error: "This face is already associated with another account." });
+      }
+    }
+
+    const user = await User.findByIdAndUpdate(req.user.id, { faceDescriptor }, { new: true });
+    res.json({ ok: true, user });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Check face against stored descriptor (authenticated)
+r.post("/auth/face-check", requireAuth, async (req, res) => {
+  try {
+    const { faceDescriptor } = req.body;
+    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      return res.status(400).json({ error: "Invalid face descriptor" });
+    }
+    const user = await User.findById(req.user.id);
+    if (!user || !user.faceDescriptor || user.faceDescriptor.length !== 128) {
+      return res.json({ match: false, distance: null, enrolled: false });
+    }
+    const distance = euclideanDistance(faceDescriptor, user.faceDescriptor);
+    res.json({ match: distance <= FACE_MATCH_THRESHOLD, distance, enrolled: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1212,17 +1294,124 @@ r.post("/reviews", requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// AI Smart Recommendations
+// ─── ML-POWERED SKILL MATCHING ──────────────────────────────────────────────
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
+
+// AI Smart Recommendations (legacy — kept for backward compatibility)
 r.get("/recommendations", requireAuth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    const activeServices = await Service.find({ status: "active" });
-    const recommendedIds = await getRecommendations(user, activeServices);
-    // Find full service objects
-    const recommendedServices = await Service.find({ _id: { $in: recommendedIds } }).populate("providerId", "name avatar");
-    res.json(recommendedServices);
+    const activeServices = await Service.find({ status: "active" }).populate("providerId");
+    // Simple heuristic fallback: return services not owned by the user
+    const filtered = activeServices.filter(s => s.providerId && s.providerId._id.toString() !== req.user.id);
+    res.json(filtered.slice(0, 6));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ML Skill Matching Recommendations
+r.get("/ml-recommend", requireAuth, async (req, res) => {
+  try {
+    const { skill } = req.query;
+    if (!skill) return res.status(400).json({ error: "Missing 'skill' query parameter" });
+
+    // Find all users who have the requested skill (or related skills)
+    const allUsers = await User.find({ _id: { $ne: req.user.id } });
+    
+    // Build candidate list with stats from the DB
+    const candidates = [];
+    for (const u of allUsers) {
+      const userSkills = u.skills || ["General"];
+      // if (userSkills.length === 0) continue; // Removed so users without skills still show up in ML matches
+
+      // Count transactions
+      const bookingsAsProvider = await Booking.find({ providerId: u._id });
+      const completedBookings = bookingsAsProvider.filter(b => b.status === "completed");
+      const cancelledBookings = bookingsAsProvider.filter(b => b.status === "cancelled");
+      const totalBookings = bookingsAsProvider.length;
+
+      candidates.push({
+        user_id: u._id.toString(),
+        name: u.name,
+        skills: userSkills,
+        rating: u.rep || 3.0,
+        experience_years: Math.max(0, Math.floor((Date.now() - new Date(u.createdAt).getTime()) / (365.25 * 24 * 60 * 60 * 1000))),
+        completion_rate: totalBookings > 0 ? completedBookings.length / totalBookings : 0.5,
+        cancellation_rate: totalBookings > 0 ? cancelledBookings.length / totalBookings : 0.0,
+        response_rate: u.responseTime ? Math.max(0.1, 1 - u.responseTime / 1440) : 0.5,
+        previous_transactions: totalBookings,
+        successful_transactions: completedBookings.length,
+        reputation_score: u.trustScore || 50,
+        time_credits: u.credits || 0,
+        availability: u.availability || "offline",
+        distance_km: Math.round(Math.random() * 15 * 10) / 10, // Simulated since no geo data
+        avatar: u.avatar || "",
+        avatarUrl: u.avatarUrl || "",
+      });
+    }
+
+    if (candidates.length === 0) {
+      return res.json({ recommendations: [], model_type: "none", total_candidates: 0 });
+    }
+
+    // Call the ML FastAPI service
+    try {
+      const mlResponse = await fetch(`${ML_SERVICE_URL}/api/ml/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requested_skill: skill, candidates }),
+      });
+
+      if (mlResponse.ok) {
+        const mlData = await mlResponse.json();
+        return res.json(mlData);
+      }
+    } catch (mlError) {
+      console.log("ML service unavailable, using heuristic fallback:", mlError.message);
+    }
+
+    // Fallback: simple heuristic scoring
+    const fallbackResults = candidates.map(c => {
+      const hasSkill = c.skills.some(s => s.toLowerCase().includes(skill.toLowerCase()));
+      const score = (hasSkill ? 40 : 10) + (c.rating / 5) * 20 + c.completion_rate * 20 + (c.successful_transactions * 2);
+      return {
+        ...c,
+        match_score: Math.min(99, Math.round(score)),
+        reasons: [
+          hasSkill ? "Skill match" : "Related experience",
+          `${c.rating}/5 rating`,
+          `${Math.round(c.completion_rate * 100)}% completion rate`,
+        ],
+        skill_similarity: hasSkill ? 0.9 : 0.3,
+      };
+    }).sort((a, b) => b.match_score - a.match_score).slice(0, 10);
+
+    res.json({ recommendations: fallbackResults, model_type: "heuristic_fallback", total_candidates: candidates.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ML Dashboard metrics (proxied from FastAPI)
+r.get("/ml-dashboard", requireAuth, async (req, res) => {
+  try {
+    const mlResponse = await fetch(`${ML_SERVICE_URL}/api/ml/dashboard`);
+    if (mlResponse.ok) {
+      const data = await mlResponse.json();
+      return res.json(data);
+    }
+    res.json({ status: "offline", message: "ML service is not running" });
+  } catch (e) {
+    res.json({ status: "offline", message: "ML service is not running" });
+  }
+});
+
+// ML Health check
+r.get("/ml-health", async (_req, res) => {
+  try {
+    const mlResponse = await fetch(`${ML_SERVICE_URL}/api/ml/health`);
+    if (mlResponse.ok) return res.json(await mlResponse.json());
+    res.json({ status: "offline" });
+  } catch (e) { res.json({ status: "offline" }); }
+});
+
 
 // Admin verify AICTE activity (AI OCR validation)
 r.post("/aicte/:id/ai-verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {

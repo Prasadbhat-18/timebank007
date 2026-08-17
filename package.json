@@ -11,12 +11,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fingerprintjs/fingerprintjs": "^5.2.0",
     "@google/genai": "^2.16.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "ethers": "^6.17.0",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "face-api.js": "^0.22.2",
     "framer-motion": "^12.42.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.8.1",

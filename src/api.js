@@ -20,11 +20,11 @@ async function req(path, opts = {}) {
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
-export const login = (email, password) =>
-  req("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+export const login = (email, password, faceDescriptor, deviceFingerprint) =>
+  req("/auth/login", { method: "POST", body: JSON.stringify({ email, password, faceDescriptor, deviceFingerprint }) });
 
-export const register = (name, email, password, bio, wallet, referralCode, college) =>
-  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college }) });
+export const register = (name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint) =>
+  req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint }) });
 
 export const websiteAdminLogin = (email, password) =>
   req("/auth/website-admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
@@ -34,6 +34,12 @@ export const collegeAdminLogin = (email, password) =>
 
 export const markWelcomeShown = (userId) =>
   req(`/auth/welcome-shown/${userId}`, { method: "POST" });
+
+export const enrollFace = (faceDescriptor) =>
+  req("/auth/face-verify", { method: "POST", body: JSON.stringify({ faceDescriptor }) });
+
+export const checkFace = (faceDescriptor) =>
+  req("/auth/face-check", { method: "POST", body: JSON.stringify({ faceDescriptor }) });
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 export const fetchUsers = () => req("/users");
@@ -123,6 +129,15 @@ export const rejectAicte = (id) =>
 
 export const fetchRecommendations = () =>
   req("/recommendations");
+
+export const fetchMLRecommendations = (skill) =>
+  req(`/ml-recommend?skill=${encodeURIComponent(skill)}`);
+
+export const fetchMLDashboard = () =>
+  req("/ml-dashboard");
+
+export const fetchMLHealth = () =>
+  req("/ml-health");
 
 export const aiVerifyAicte = (id) =>
   req(`/aicte/${id}/ai-verify`, { method: "POST" });
