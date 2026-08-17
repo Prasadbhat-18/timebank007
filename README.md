@@ -29,9 +29,9 @@ Deploy the root repository to Netlify / Vercel:
 
 ## 💻 Local Development
 
-1. Create a `.env` file at the root:
+1. Create a `.env` file at the root (refer to `.env.example`):
    ```env
-   MONGODB_URI=mongodb+srv://pnb580_db_user:mLAOPr7cH4zxE7mJ@cluster0.ngfpvkp.mongodb.net/timebank?appName=Cluster0
+   MONGODB_URI=your_mongodb_atlas_connection_string
    PORT=5000
    ```
 2. Start the backend server:
