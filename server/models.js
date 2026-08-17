@@ -16,9 +16,15 @@ const userSchema = new Schema({
   bio:         { type: String, default: "" },
   avatar:      { type: String, default: "" },        // initials or base64 image data URL
   avatarUrl:   { type: String, default: "" },         // uploaded profile picture URL/data URI
-  role:        { type: String, enum: ["user", "collegeAdmin", "websiteAdmin"], default: "user" },
+  role:        { 
+    type: String, 
+    enum: ["student", "general_user", "institute_admin", "super_admin", "user", "collegeAdmin", "websiteAdmin"], 
+    default: "general_user" 
+  },
   welcomeShown:{ type: Boolean, default: false },
   college:     { type: String, default: "" }, // Institution for scoping collegeAdmin capabilities
+  collegeId:   { type: Schema.Types.ObjectId, ref: "College", default: null },
+  collegeIdNumber: { type: String, default: "" },
   wallet:      { type: String, default: "" },
   credits:     { type: Number, default: 10 },
   earned:      { type: Number, default: 0 },
@@ -84,6 +90,9 @@ const userSchema = new Schema({
   verificationStatus: { type: String, enum: ["pending", "verified", "flagged", "rejected"], default: "pending" },
   riskScore:          { type: Number, default: 0 },
   flaggedReasons:     [{ type: String }],
+  reviewedBy:         { type: Schema.Types.ObjectId, ref: "User", default: null },
+  reviewedAt:         { type: Date, default: null },
+  rejectionReason:    { type: String, default: "" },
 }, { timestamps: true });
 
 // ─── Skill ───────────────────────────────────────────────────────────────────
@@ -148,16 +157,43 @@ const reviewSchema = new Schema({
   direction:   { type: String, enum: ["requester_to_provider", "provider_to_requester"], default: "requester_to_provider" },
 }, { timestamps: true });
 
+// ─── College ─────────────────────────────────────────────────────────────────
+const collegeSchema = new Schema({
+  name:        { type: String, required: true, trim: true },
+  emailDomain: { type: String, required: true, lowercase: true, trim: true },
+  code:        { type: String, default: "", uppercase: true, trim: true },
+  city:        { type: String, default: "" },
+  state:       { type: String, default: "" },
+}, { timestamps: true });
+
 // ─── Notification ────────────────────────────────────────────────────────────
 const notificationSchema = new Schema({
-  userId:  { type: Schema.Types.ObjectId, ref: "User", required: true },
+  userId:  { type: Schema.Types.ObjectId, ref: "User", index: true },
+  user:    { type: Schema.Types.ObjectId, ref: "User", index: true },
   type:    { type: String, required: true },
-  // Types: credit, level_up, warning, restriction, badge, referral,
-  //        chat, booking, review, dispute, completion, welcome, demotion_warning
+  // Types: match_request, match_accepted, transaction_confirmed, verification_decision,
+  //        low_balance, flagged_review, credit, level_up, warning, restriction, badge,
+  //        referral, chat, booking, review, dispute, completion, welcome, demotion_warning
   title:   { type: String, required: true },
-  message: { type: String, required: true },
+  body:    { type: String, default: "" },
+  message: { type: String, default: "" },
   data:    { type: Schema.Types.Mixed, default: {} },
   read:    { type: Boolean, default: false },
+}, { timestamps: true });
+
+// ─── Certificate (Verifiable AICTE) ──────────────────────────────────────────
+const certificateSchema = new Schema({
+  certId:         { type: String, required: true, unique: true, index: true },
+  user:           { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  college:        { type: Schema.Types.Mixed, default: null },
+  activityPoints: { type: Number, required: true },
+  totalHours:     { type: Number, required: true },
+  exchangeCount:  { type: Number, required: true },
+  periodStart:    { type: Date, required: true },
+  periodEnd:      { type: Date, required: true },
+  integrityHash:  { type: String, required: true },
+  txHash:         { type: String, default: null },
+  blockNumber:    { type: Number, default: null },
 }, { timestamps: true });
 
 // ─── Dispute ─────────────────────────────────────────────────────────────────
@@ -235,7 +271,18 @@ const fraudReviewSchema = new Schema({
   note:       { type: String, default: "" },
 }, { timestamps: true });
 
+// ─── OTP / Magic Link Verification ──────────────────────────────────────────
+const otpSchema = new Schema({
+  email:     { type: String, required: true, lowercase: true, trim: true, index: true },
+  code:      { type: String, required: true },
+  token:     { type: String, default: null }, // for magic link
+  type:      { type: String, enum: ["login", "register", "verify_email"], default: "login" },
+  expiresAt: { type: Date, required: true },
+  used:      { type: Boolean, default: false },
+}, { timestamps: true });
+
 // ─── Export Models ───────────────────────────────────────────────────────────
+export const College      = model("College", collegeSchema);
 export const User         = model("User", userSchema);
 export const Skill        = model("Skill", skillSchema);
 export const Service      = model("Service", serviceSchema);
@@ -243,9 +290,11 @@ export const Booking      = model("Booking", bookingSchema);
 export const Transaction  = model("Transaction", transactionSchema);
 export const Review       = model("Review", reviewSchema);
 export const Notification = model("Notification", notificationSchema);
+export const Certificate  = model("Certificate", certificateSchema);
 export const Dispute      = model("Dispute", disputeSchema);
 export const Aicte        = model("Aicte", aicteSchema);
 export const Chat         = model("Chat", chatSchema);
 export const Emergency    = model("Emergency", emergencySchema);
 export const Blockchain   = model("Blockchain", blockchainSchema);
 export const FraudReview  = model("FraudReview", fraudReviewSchema);
+export const Otp          = model("Otp", otpSchema);

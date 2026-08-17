@@ -1,4 +1,6 @@
 // ─── TimeBank — Express + Socket.io Server ──────────────────────────────────
+import dns from "dns";
+try { dns.setDefaultResultOrder?.("ipv4first"); } catch (e) {}
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -6,7 +8,8 @@ import mongoose from "mongoose";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
-import routes, { seedSkills, seedAdmin } from "./routes.js";
+import { initSocket, getIO } from "./sockets.js";
+import routes, { seedSkills, seedAdmin, seedColleges } from "./routes.js";
 
 dotenv.config();
 
@@ -14,23 +17,18 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5000;
 
-// Socket.io server
-const io = new Server(httpServer, {
-  cors: {
-    origin: ["http://localhost:5173", "http://localhost:4173"],
-    methods: ["GET", "POST"],
-  },
-});
+// Initialize Socket.io server with JWT authentication and push channels
+const io = initSocket(httpServer);
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Rate-limit auth endpoints — 10 requests per 15 min per IP
+// Rate-limit auth endpoints — 30 requests per 15 min per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 30,
   message: { error: "Too many attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -55,62 +53,7 @@ app.get("/", (_req, res) => {
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), socketConnections: io.engine.clientsCount });
-});
-
-// ─── SOCKET.IO EVENT HANDLING ────────────────────────────────────────────────
-const onlineUsers = new Map(); // userId -> socketId
-
-io.on("connection", (socket) => {
-  // User joins with their userId
-  socket.on("join", (userId) => {
-    if (!userId) return;
-    onlineUsers.set(userId, socket.id);
-    socket.userId = userId;
-    socket.join(`user:${userId}`);
-
-    // Broadcast online status
-    io.emit("user_online", { userId });
-  });
-
-  // Real-time chat message
-  socket.on("send_message", (data) => {
-    const { chatId, senderId, recipientId, text } = data;
-    // Emit to the recipient
-    io.to(`user:${recipientId}`).emit("new_message", {
-      chatId, senderId, text, createdAt: new Date().toISOString(),
-    });
-  });
-
-  // Typing indicator
-  socket.on("typing", (data) => {
-    const { chatId, recipientId, isTyping } = data;
-    io.to(`user:${recipientId}`).emit("user_typing", {
-      chatId, userId: socket.userId, isTyping,
-    });
-  });
-
-  // Read receipt
-  socket.on("read_messages", (data) => {
-    const { chatId, senderId } = data;
-    io.to(`user:${senderId}`).emit("messages_read", {
-      chatId, readBy: socket.userId,
-    });
-  });
-
-  // Push notification to specific user
-  socket.on("push_notification", (data) => {
-    const { targetUserId, notification } = data;
-    io.to(`user:${targetUserId}`).emit("notification", notification);
-  });
-
-  // Disconnect
-  socket.on("disconnect", () => {
-    if (socket.userId) {
-      onlineUsers.delete(socket.userId);
-      io.emit("user_offline", { userId: socket.userId });
-    }
-  });
+  res.json({ status: "ok", timestamp: new Date().toISOString(), socketConnections: io ? io.engine.clientsCount : 0 });
 });
 
 // Connect to MongoDB then start server
@@ -126,6 +69,7 @@ async function start() {
     // Seed default data
     await seedSkills();
     await seedAdmin();
+    await seedColleges();
 
     httpServer.listen(PORT, () => {
       console.log(`  ✓ Server running on http://localhost:${PORT}`);

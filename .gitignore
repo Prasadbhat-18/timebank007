@@ -18,8 +18,10 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Python & ML artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pkl
+ml/models/*.pkl
+ml/dataset/*.csv

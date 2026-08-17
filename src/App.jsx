@@ -7,6 +7,10 @@ import * as chain from "./blockchain.js";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import FaceVerification from "./FaceVerification.jsx";
 import { getDeviceFingerprint } from "./fingerprint.js";
+import LandingChoice from "./LandingChoice.jsx";
+import NotificationBell from "./NotificationBell.jsx";
+import AICTEProgress from "./AICTEProgress.jsx";
+import VerifyCertificate from "./VerifyCertificate.jsx";
 
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
@@ -101,37 +105,38 @@ export function ShieldIcon({ size = 16, color = "currentColor" }) {
 
 // ─── Animation Variants ──────────────────────────────────────────────────────
 
-const SUGGESTED_COLLEGES = [
-  "Global Academy",
-  "Global Institute of Technology",
-  "Global Engineering College",
-  "ABC University",
-  "XYZ College",
-  "National Institute of Technology",
-  "Indian Institute of Technology",
-  "Stanford University",
-  "Massachusetts Institute of Technology (MIT)",
-  "Harvard University",
-  "Oxford University",
-  "Cambridge University",
-  "University of California, Berkeley",
-  "California Institute of Technology (Caltech)",
-  "Princeton University",
-  "Yale University",
-  "Columbia University",
-  "University of Chicago",
-  "University of Pennsylvania",
-  "Cornell University",
-  "University of Michigan",
-  "National University of Singapore",
-  "Nanyang Technological University",
-  "University of Tokyo",
-  "Tsinghua University"
+const FALLBACK_COLLEGES = [
+  { name: "National Institute of Technology Karnataka (NITK)", emailDomain: "nitk.edu.in", code: "NITK" },
+  { name: "Indian Institute of Technology Bombay (IITB)", emailDomain: "iitb.ac.in", code: "IITB" },
+  { name: "BITS Pilani", emailDomain: "bits-pilani.ac.in", code: "BITS" },
+  { name: "Delhi Technological University (DTU)", emailDomain: "dtu.ac.in", code: "DTU" },
+  { name: "PES University", emailDomain: "pes.edu", code: "PESU" },
+  { name: "RV College of Engineering", emailDomain: "rvce.edu.in", code: "RVCE" },
+  { name: "Global Academy of Technology", emailDomain: "global.edu.in", code: "GAT" },
+  { name: "Stanford University", emailDomain: "stanford.edu", code: "STAN" },
+  { name: "Massachusetts Institute of Technology (MIT)", emailDomain: "mit.edu", code: "MIT" },
+  { name: "Harvard University", emailDomain: "harvard.edu", code: "HARV" },
 ];
 
-function CollegeAutocomplete({ value, onChange, placeholder }) {
+function CollegeAutocomplete({ value, onChange, onSelectCollege, placeholder }) {
   const [show, setShow] = useState(false);
-  const filtered = SUGGESTED_COLLEGES.filter(c => c.toLowerCase().includes(value.toLowerCase()));
+  const [collegeList, setCollegeList] = useState(FALLBACK_COLLEGES);
+
+  useEffect(() => {
+    api.fetchColleges()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCollegeList(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const filtered = collegeList.filter((c) =>
+    c.name.toLowerCase().includes((value || "").toLowerCase()) ||
+    (c.code && c.code.toLowerCase().includes((value || "").toLowerCase())) ||
+    (c.emailDomain && c.emailDomain.toLowerCase().includes((value || "").toLowerCase()))
+  );
 
   return (
     <div style={{ position: "relative" }}>
@@ -140,8 +145,8 @@ function CollegeAutocomplete({ value, onChange, placeholder }) {
         value={value} 
         onChange={(e) => { onChange(e.target.value); setShow(true); }} 
         onFocus={() => setShow(true)} 
-        onBlur={() => setTimeout(() => setShow(false), 200)}
-        placeholder={placeholder} 
+        onBlur={() => setTimeout(() => setShow(false), 250)}
+        placeholder={placeholder || "Search your college..."} 
       />
       <AnimatePresence>
         {show && filtered.length > 0 && (
@@ -149,19 +154,28 @@ function CollegeAutocomplete({ value, onChange, placeholder }) {
             initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
             style={{ 
               position: "absolute", top: "100%", left: 0, right: 0, 
-              background: "var(--bg)", border: "1px solid var(--border)", 
-              borderRadius: 8, zIndex: 100, maxHeight: 150, overflowY: "auto",
-              marginTop: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.5)" 
+              background: "rgba(12, 16, 26, 0.98)", border: "1px solid var(--border)", 
+              borderRadius: 8, zIndex: 100, maxHeight: 180, overflowY: "auto",
+              marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.6)" 
             }}>
-            {filtered.map(c => (
+            {filtered.map((c) => (
               <div 
-                key={c} 
-                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid var(--border)" }} 
-                onClick={() => { onChange(c); setShow(false); }}
-                onMouseEnter={(e) => e.target.style.background = "rgba(255,255,255,0.05)"}
-                onMouseLeave={(e) => e.target.style.background = "transparent"}
+                key={c._id || c.name} 
+                style={{ padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.05)" }} 
+                onMouseDown={() => {
+                  onChange(c.name);
+                  if (onSelectCollege) onSelectCollege(c);
+                  setShow(false);
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(16, 185, 129, 0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                {c}
+                <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{c.name}</div>
+                {c.emailDomain && (
+                  <div style={{ fontSize: 11, color: "var(--em)" }}>
+                    Email domain: @{c.emailDomain}
+                  </div>
+                )}
               </div>
             ))}
           </motion.div>
@@ -220,10 +234,34 @@ export default function App() {
   const [notifs, setNotifs] = useState([]);
   const [modal, setModal] = useState(null);
   const [clockAngle, setClockAngle] = useState({ h: 0, m: 0 });
+  const [verifyCertId, setVerifyCertId] = useState(null);
 
   // Shared data cache
   const [skills, setSkills] = useState([]);
   const [users, setUsers] = useState([]);
+
+  const [autofillOtpData, setAutofillOtpData] = useState(null);
+
+  // Check URL hash for public certificate verification /#verify/:certId or magic login /#magic-login/:token
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash || "";
+      if (hash.startsWith("#verify/")) {
+        const id = hash.replace("#verify/", "").trim();
+        if (id) {
+          setVerifyCertId(id);
+        }
+      } else if (hash.startsWith("#magic-login/")) {
+        const token = hash.replace("#magic-login/", "").trim();
+        if (token) {
+          doMagicLogin(token);
+        }
+      }
+    };
+    handleHash();
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
 
   // Check for welcome bonus on login
   useEffect(() => {
@@ -240,7 +278,6 @@ export default function App() {
       );
     }
   }, [user, setModal]);
-
 
   // Live clock
   useEffect(() => {
@@ -269,8 +306,6 @@ export default function App() {
   useEffect(() => {
     if (user) api.fetchUsers().then(setUsers).catch(() => {});
   }, [user]);
-
-
 
   const notify = useCallback((msg, type = "success") => {
     const id = Date.now() + Math.random();
@@ -329,12 +364,70 @@ export default function App() {
       const { token, user: u, newDevice } = await api.login(email, pass, null, deviceFingerprint);
       localStorage.setItem("token", token);
       setUser(u);
-      nav("dashboard");
+      if (u.role === "websiteAdmin" || u.role === "super_admin") {
+        nav("website-admin");
+      } else if (u.role === "collegeAdmin" || u.role === "institute_admin") {
+        nav("college-admin");
+      } else {
+        nav("dashboard");
+      }
       if (newDevice) {
         notify("Login from a new device detected 🔔", "warning");
       }
       notify(`Welcome back, ${u.name.split(" ")[0]}!`);
-    } catch (e) { notify(e.message, "error"); }
+    } catch (e) {
+      notify(e.message || "Failed to sign in", "error");
+      throw e;
+    }
+  };
+
+  // Magic Login (1-click link from college email)
+  const doMagicLogin = async (magicToken) => {
+    try {
+      const res = await api.magicLogin(magicToken);
+      if (res.token && res.user) {
+        localStorage.setItem("token", res.token);
+        setUser(res.user);
+        if (res.user.role === "websiteAdmin" || res.user.role === "super_admin") {
+          nav("website-admin");
+        } else if (res.user.role === "collegeAdmin" || res.user.role === "institute_admin") {
+          nav("college-admin");
+        } else {
+          nav("dashboard");
+        }
+        notify(res.message || `Welcome, ${res.user.name}! 🚀`);
+        window.location.hash = "";
+      }
+    } catch (e) {
+      notify(e.message || "Magic login link expired or invalid", "error");
+    }
+  };
+
+  // Real-Time College Email OTP Verification & Login
+  const doLoginWithOtp = async (email, otp) => {
+    try {
+      const deviceFingerprint = await getDeviceFingerprint();
+      const res = await api.verifyOtp(email, otp, deviceFingerprint);
+      if (res.token && res.user) {
+        localStorage.setItem("token", res.token);
+        setUser(res.user);
+        if (res.user.role === "websiteAdmin" || res.user.role === "super_admin") {
+          nav("website-admin");
+        } else if (res.user.role === "collegeAdmin" || res.user.role === "institute_admin") {
+          nav("college-admin");
+        } else {
+          nav("dashboard");
+        }
+        if (res.newDevice) {
+          notify("Login from a new device detected 🔔", "warning");
+        }
+        notify(`Welcome back, ${res.user.name.split(" ")[0]}! 🎉`);
+      }
+      return res;
+    } catch (e) {
+      notify(e.message || "Failed to verify code", "error");
+      throw e;
+    }
   };
 
   const doWebsiteAdminLogin = async (email, pass) => {
@@ -357,16 +450,38 @@ export default function App() {
     } catch (e) { notify(e.message, "error"); }
   };
 
-  // Register
-  const doRegister = async (name, email, pass, bio, college, faceDescriptor, phone, collegeIdNumber) => {
+  // Dual Registration: Handles student & general_user
+  const doRegister = async (roleOrData, optionalData) => {
     try {
+      let role = "student";
+      let regData = {};
+
+      if (typeof roleOrData === "string") {
+        role = roleOrData;
+        regData = optionalData || {};
+      } else {
+        regData = roleOrData || {};
+        role = regData.role || (regData.college ? "student" : "general_user");
+      }
+
+      const { faceDescriptor } = regData;
       if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
-        notify("Face verification is required to create an account.", "error");
+        notify("Live face verification is required to complete registration.", "error");
         return;
       }
+
       let rc = localStorage.getItem("referralCode") || undefined;
       const deviceFingerprint = await getDeviceFingerprint();
-      const { token, user: u } = await api.register(name, email, pass, bio, null, rc, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber);
+      const payload = { ...regData, referralCode: rc, deviceFingerprint };
+
+      let res;
+      if (role === "student") {
+        res = await api.registerStudent(payload);
+      } else {
+        res = await api.registerGeneral(payload);
+      }
+
+      const { token, user: u, message } = res;
       localStorage.setItem("token", token);
       
       const keyName = "tb_key_" + u._id;
@@ -380,12 +495,14 @@ export default function App() {
         walletAddr = new ethers.Wallet(privateKey).address;
       }
 
-      // Update the user profile with the generated wallet
       const updatedUser = await api.updateUser(u._id, { wallet: walletAddr });
       setUser(updatedUser);
       nav("dashboard");
-      notify("Welcome! You received 2 starter credits on-chain! 🎉");
-    } catch (e) { notify(e.message, "error"); }
+      notify(message || (role === "student" ? "Welcome! Student account & AICTE tracking active 🎓" : "Welcome! Account created successfully 🎉"));
+    } catch (e) {
+      notify(e.message, "error");
+      throw e;
+    }
   };
 
   // Logout
@@ -402,14 +519,43 @@ export default function App() {
   const pageProps = {
     user, wallet, skills, users, notify, nav, getU, getSk,
     setModal: handleSetModal, refreshUser, connectWallet, doLogout,
-    loadSkills,
+    loadSkills, setVerifyCertId,
   };
 
   return (
     <div style={{ minHeight: "100vh", position: "relative" }}>
       {(page === "landing" || page === "auth") && <BlockchainBg isBlurred={page === "auth"} />}
-      <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} />
+      <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} notify={notify} />
       <NotifStack notifs={notifs} />
+      
+      {/* Public QR Certificate Verification Modal */}
+      {verifyCertId && (
+        <div className="overlay" style={{ zIndex: 99999 }} onClick={(e) => e.target.className === "overlay" && setVerifyCertId(null)}>
+          <div className="mo-box" style={{ maxWidth: 620, width: "95%", position: "relative" }}>
+            <button
+              onClick={() => {
+                setVerifyCertId(null);
+                if (window.location.hash.startsWith("#verify/")) {
+                  window.location.hash = "";
+                }
+              }}
+              style={{ position: "absolute", top: 15, right: 15, background: "transparent", border: "none", color: "#888", fontSize: 20, cursor: "pointer", zIndex: 10 }}
+            >
+              ✕
+            </button>
+            <VerifyCertificate
+              certId={verifyCertId}
+              onClose={() => {
+                setVerifyCertId(null);
+                if (window.location.hash.startsWith("#verify/")) {
+                  window.location.hash = "";
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <AnimatePresence>
         {modal && (
           <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={(e) => e.target.className === "overlay" && setModal(null)}>
@@ -429,18 +575,27 @@ export default function App() {
       <AnimatePresence mode="wait">
         <motion.div key={page} variants={pageVariants} initial="initial" animate="animate" exit="exit" style={{ position: "relative", zIndex: 1 }}>
           {page === "landing" && <Landing nav={nav} />}
-          {page === "auth" && <Auth doLogin={doLogin} doRegister={doRegister} clockAngle={clockAngle} />}
+          {page === "auth" && (
+            <Auth
+              doLogin={doLogin}
+              doLoginWithOtp={doLoginWithOtp}
+              doRegister={doRegister}
+              clockAngle={clockAngle}
+              autofillOtpData={autofillOtpData}
+              notify={notify}
+            />
+          )}
           {page === "website-admin-login" && <WebsiteAdminLogin doLogin={doWebsiteAdminLogin} />}
           {page === "college-admin-login" && <CollegeAdminLogin doLogin={doCollegeAdminLogin} />}
           {page === "dashboard" && user && <Dashboard {...pageProps} />}
           {page === "services" && user && <Services {...pageProps} />}
           {page === "bookings" && user && <Bookings {...pageProps} />}
           {page === "wallet" && user && <Wallet {...pageProps} />}
-          {page === "aicte" && user && <AICTEPage {...pageProps} />}
+          {page === "aicte" && user && user.role === "student" && <AICTEPage {...pageProps} />}
           {page === "chat" && user && <ChatPage {...pageProps} />}
           {page === "profile" && user && <Profile {...pageProps} />}
-          {page === "website-admin" && user?.role === "websiteAdmin" && <Admin prefix="website-admin" {...pageProps} />}
-          {page === "college-admin" && user?.role === "collegeAdmin" && <Admin prefix="college-admin" {...pageProps} />}
+          {page === "website-admin" && (user?.role === "websiteAdmin" || user?.role === "super_admin") && <Admin prefix="website-admin" {...pageProps} />}
+          {page === "college-admin" && (user?.role === "collegeAdmin" || user?.role === "institute_admin") && <Admin prefix="college-admin" {...pageProps} />}
         </motion.div>
       </AnimatePresence>
 
@@ -450,9 +605,15 @@ export default function App() {
 }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
-function Nav({ user, page, nav, clockAngle, doLogout }) {
+function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const userPages = ["dashboard", "services", "bookings", "wallet", "aicte", "chat", "profile"];
+  
+  // AICTE tab is exclusively available for Students
+  const isStudent = user?.role === "student";
+  const userPages = isStudent
+    ? ["dashboard", "services", "bookings", "wallet", "aicte", "chat", "profile"]
+    : ["dashboard", "services", "bookings", "wallet", "chat", "profile"];
+
   return (
     <nav className="nav">
       <div className="nav-logo" onClick={() => nav(user ? "dashboard" : "landing")}>
@@ -466,23 +627,29 @@ function Nav({ user, page, nav, clockAngle, doLogout }) {
       </div>
       {user ? (
         <>
-          {user.role === "websiteAdmin" ? (
-            <button className={`nl${page === "website-admin" ? " act" : ""}`} onClick={() => nav("website-admin")}>Website Admin</button>
-          ) : user.role === "collegeAdmin" ? (
-            <button className={`nl${page === "college-admin" ? " act" : ""}`} onClick={() => nav("college-admin")}>College Admin</button>
+          {(user.role === "websiteAdmin" || user.role === "super_admin") ? (
+            <button className={`nl${page === "website-admin" ? " act" : ""}`} onClick={() => nav("website-admin")}>Platform Admin</button>
+          ) : (user.role === "collegeAdmin" || user.role === "institute_admin") ? (
+            <button className={`nl${page === "college-admin" ? " act" : ""}`} onClick={() => nav("college-admin")}>Institution Admin ({user.college || "Institute"})</button>
           ) : (
             userPages.map((p) => (
               <button key={p} className={`nl${page === p ? " act" : ""}`} onClick={() => nav(p)}>
-                {p.charAt(0).toUpperCase() + p.slice(1)}
+                {p === "aicte" ? "AICTE Points 🎓" : p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))
           )}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             <span className="nav-badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
               <ClockIcon size={13} color="var(--em)" />
               <span>{user.credits} cr</span>
             </span>
-            <div className="nav-av" onClick={() => nav(user.role.includes("Admin") ? (user.role === "websiteAdmin" ? "website-admin" : "college-admin") : "profile")}>{user.avatar}</div>
+
+            {/* Real-time Notification Bell */}
+            <NotificationBell user={user} notify={notify} />
+
+            <div className="nav-av" onClick={() => nav(user.role?.includes("Admin") || user.role === "super_admin" || user.role === "institute_admin" ? (user.role === "websiteAdmin" || user.role === "super_admin" ? "website-admin" : "college-admin") : "profile")}>
+              {user.avatar}
+            </div>
             <button className="nl" onClick={doLogout}>Sign out</button>
           </div>
         </>
@@ -1175,15 +1342,60 @@ function Landing({ nav }) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({ doLogin, doRegister, clockAngle }) {
+function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
+  const [regRole, setRegRole] = useState(null); // null | 'student' | 'general_user'
+  
+  // Login states
+  const [signInMethod, setSignInMethod] = useState("otp"); // 'otp' | 'password'
   const [le, setLe] = useState(""), [lp, setLp] = useState("");
+  const [loginOtp, setLoginOtp] = useState("");
+  const [loginOtpSent, setLoginOtpSent] = useState(false);
+  const [loginCountdown, setLoginCountdown] = useState(0);
+
+  // Student Registration states
   const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState(""), [rc, setRc] = useState("");
+  const [selectedCollegeDoc, setSelectedCollegeDoc] = useState(null);
   const [rphone, setRphone] = useState(""), [rpin, setRpin] = useState("");
+  const [regOtp, setRegOtp] = useState("");
+  const [regOtpSent, setRegOtpSent] = useState(false);
+  const [regCountdown, setRegCountdown] = useState(0);
+  const [emailVerified, setEmailVerified] = useState(false);
+
   const [forgotEmail, setForgotEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [faceDescriptor, setFaceDescriptor] = useState(null);
+
+  // Listen to autofill trigger from Real-time College Email Inbox modal
+  useEffect(() => {
+    if (autofillOtpData && autofillOtpData.code) {
+      if (tab === "login") {
+        if (autofillOtpData.email) setLe(autofillOtpData.email);
+        setLoginOtp(autofillOtpData.code);
+        setSignInMethod("otp");
+        setLoginOtpSent(true);
+      } else if (tab === "register") {
+        if (autofillOtpData.email) setRe(autofillOtpData.email);
+        setRegOtp(autofillOtpData.code);
+        setRegOtpSent(true);
+      }
+    }
+  }, [autofillOtpData, tab]);
+
+  // Login countdown timer
+  useEffect(() => {
+    if (loginCountdown <= 0) return;
+    const timer = setInterval(() => setLoginCountdown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [loginCountdown]);
+
+  // Register countdown timer
+  useEffect(() => {
+    if (regCountdown <= 0) return;
+    const timer = setInterval(() => setRegCountdown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [regCountdown]);
 
   const cx = 34, cy = 34;
   const hx = cx + 14 * Math.sin((clockAngle.h * Math.PI) / 180);
@@ -1191,8 +1403,88 @@ function Auth({ doLogin, doRegister, clockAngle }) {
   const mx = cx + 18 * Math.sin((clockAngle.m * Math.PI) / 180);
   const my = cy - 18 * Math.cos((clockAngle.m * Math.PI) / 180);
 
+  // Send Login OTP
+  const handleSendLoginOtp = async () => {
+    if (!le || !le.includes("@")) {
+      setError("Please enter a valid college / account email address.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const res = await api.sendOtp(le, "login");
+      setLoginOtpSent(true);
+      setLoginCountdown(60);
+      if (notify) notify(`Verification code dispatched to ${le} 📬`);
+    } catch (e) {
+      setError(e.message || "Failed to dispatch verification code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Verify Login OTP
+  const handleVerifyLoginOtp = async () => {
+    if (!le || !loginOtp) {
+      setError("Please enter your email and the 6-digit verification code.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      if (doLoginWithOtp) {
+        await doLoginWithOtp(le, loginOtp);
+      }
+    } catch (e) {
+      setError(e.message || "Verification failed. Please check the code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Send Registration Email OTP
+  const handleSendRegOtp = async () => {
+    if (!re || !re.includes("@")) {
+      setError("Please enter a valid college email.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      await api.sendOtp(re, "register");
+      setRegOtpSent(true);
+      setRegCountdown(60);
+      if (notify) notify(`Real-time verification code dispatched to ${re} 📬`);
+    } catch (e) {
+      setError(e.message || "Failed to dispatch verification code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Verify Registration Email OTP
+  const handleVerifyRegOtp = async () => {
+    if (!re || !regOtp) {
+      setError("Please enter the 6-digit code received.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const res = await api.verifyOtp(re, regOtp);
+      if (res.verified || res.success) {
+        setEmailVerified(true);
+        if (notify) notify("College email verified successfully! ✓");
+      }
+    } catch (e) {
+      setError(e.message || "Invalid or expired verification code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLoginSubmit = async () => {
-    if (!le || !lp) { setError("Fill all credentials"); return; }
+    if (!le || !lp) { setError("Please enter your email and password."); return; }
     setError("");
     setLoading(true);
     try {
@@ -1204,111 +1496,673 @@ function Auth({ doLogin, doRegister, clockAngle }) {
     }
   };
 
-  const handleRegisterSubmit = async () => {
-    if (!rn || !re || rp.length < 6) { setError("Full name, email and password (min 6 chars) are required"); return; }
-    if (!faceDescriptor) { setError("Face verification is required to create your account."); return; }
+  const handleStudentRegister = async () => {
+    if (!rn || !re) {
+      setError("Full legal name and college email are required.");
+      return;
+    }
+    if (!rc) {
+      setError("Please select your college/institution.");
+      return;
+    }
+    if (!faceDescriptor) {
+      setError("Live face scan is mandatory to enroll your biometric profile.");
+      return;
+    }
+
     setError("");
     setLoading(true);
     try {
-      await doRegister(rn, re, rp, rb, rc, faceDescriptor, rphone, rpin);
+      await doRegister("student", {
+        name: rn,
+        email: re,
+        bio: rb,
+        college: rc,
+        collegeId: selectedCollegeDoc?._id || null,
+        collegeIdNumber: rpin,
+        phone: rphone,
+        faceDescriptor,
+        otp: regOtp || undefined,
+      });
     } catch (e) {
-      setError(e.message || "Failed to create account");
+      setError(e.message || "Failed to create student account.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGeneralRegister = async () => {
+    if (!rn || !re) {
+      setError("Full name and email address are required.");
+      return;
+    }
+    if (!faceDescriptor) {
+      setError("Live face scan is mandatory to enroll your biometric profile.");
+      return;
+    }
+
+    setError("");
+    setLoading(true);
+    try {
+      await doRegister("general_user", {
+        name: rn,
+        email: re,
+        bio: rb,
+        phone: rphone,
+        faceDescriptor,
+        otp: regOtp || undefined,
+      });
+    } catch (e) {
+      setError(e.message || "Failed to create account.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2 }}>
-      <div style={{ display: "flex", gap: "2.5rem", flexWrap: "wrap", justifyContent: "center", alignItems: "flex-start", width: "100%", maxWidth: 900, margin: "0 auto" }}>
+    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2, padding: "2.5rem 1rem", minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: "100%", maxWidth: tab === "register" && regRole ? 560 : 440, margin: "0 auto" }}>
         
-        {/* User Auth Card */}
-        <motion.div className="auth-card" {...fadeUp(0.1)} style={{ flex: 1, minWidth: 320, maxWidth: 440 }}>
-          <div className="clock-wrap">
-            <svg className="clock-svg" viewBox="0 0 68 68" fill="none">
-              <circle cx="34" cy="34" r="30" stroke="#00c27a" strokeWidth="2" fill="none" />
-              {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((a) => (
-                <line key={a} x1={34 + 28 * Math.sin((a * Math.PI) / 180)} y1={34 - 28 * Math.cos((a * Math.PI) / 180)}
-                  x2={34 + 24 * Math.sin((a * Math.PI) / 180)} y2={34 - 24 * Math.cos((a * Math.PI) / 180)}
-                  stroke="rgba(0,194,122,0.2)" strokeWidth="1.5" />
-              ))}
-              <line x1="34" y1="34" x2={hx} y2={hy} stroke="#00c27a" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="34" y1="34" x2={mx} y2={my} stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />
-              <circle cx="34" cy="34" r="2.5" fill="#00c27a" />
-            </svg>
+        {/* Auth Card */}
+        <motion.div
+          className="auth-card"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          style={{
+            background: "rgba(18, 24, 38, 0.85)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            borderRadius: 20,
+            padding: "2.25rem 2rem",
+            boxShadow: "0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05)",
+            width: "100%",
+          }}
+        >
+          {/* Header */}
+          <div style={{ textAlign: "center", marginBottom: "1.75rem" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.25)", borderRadius: 20, padding: "4px 12px", color: "var(--em)", fontSize: 11.5, fontWeight: 700, marginBottom: "0.75rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+              <span>⚡</span> TimeBank Verified
+            </div>
+            <h2 style={{ fontSize: 24, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em", margin: "0 0 6px" }}>
+              {tab === "login" ? "Welcome Back" : tab === "register" && !regRole ? "Get Started" : regRole === "student" ? "Student Registration" : "Create Account"}
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+              {tab === "login" ? "Sign in with One-Time Email Code & Face Scan" : "Join the decentralized skill exchange network"}
+            </p>
           </div>
           
-          <h2 className="auth-title" style={{ fontSize: 26, letterSpacing: "-0.03em" }}>TimeBank</h2>
-          <p className="auth-sub" style={{ marginBottom: "1.5rem" }}>P2P Skill Exchange · Polygon Verified</p>
-          
           {error && (
-            <div style={{ color: "var(--red)", background: "var(--red-bg)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: "1.25rem", textAlign: "center" }}>
-              {error}
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              style={{
+                color: "#f87171",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontSize: 12.5,
+                marginBottom: "1.25rem",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span>⚠️</span>
+              <span style={{ flex: 1 }}>{error}</span>
+            </motion.div>
+          )}
+
+          {/* Primary Tabs (Sign in / Sign up) */}
+          {tab !== "forgot" && !regRole && (
+            <div style={{ display: "flex", background: "rgba(0, 0, 0, 0.3)", borderRadius: 12, padding: 4, marginBottom: "1.5rem", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+              <button
+                type="button"
+                className={`atab${tab === "login" ? " on" : ""}`}
+                onClick={() => { setTab("login"); setRegRole(null); setError(""); }}
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 9,
+                  border: "none",
+                  background: tab === "login" ? "var(--em)" : "transparent",
+                  color: tab === "login" ? "#000" : "var(--text-secondary)",
+                  fontWeight: tab === "login" ? 700 : 500,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className={`atab${tab === "register" ? " on" : ""}`}
+                onClick={() => { setTab("register"); setError(""); }}
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 9,
+                  border: "none",
+                  background: tab === "register" ? "var(--em)" : "transparent",
+                  color: tab === "register" ? "#000" : "var(--text-secondary)",
+                  fontWeight: tab === "register" ? 700 : 500,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                Sign Up
+              </button>
             </div>
           )}
 
-          {tab !== "forgot" && (
-            <div className="auth-tabs">
-              <button className={`atab${tab === "login" ? " on" : ""}`} onClick={() => { setTab("login"); setError(""); }}>Sign in</button>
-              <button className={`atab${tab === "register" ? " on" : ""}`} onClick={() => { setTab("register"); setError(""); }}>Sign up</button>
-            </div>
-          )}
-
+          {/* ─── SIGN IN TAB ─── */}
           {tab === "login" && (
-            <>
-              <div className="field"><label>Email</label><input className="fi" value={le} onChange={(e) => setLe(e.target.value)} placeholder="your@email.com" /></div>
-              <div className="field"><label>Password</label><input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="Password" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} /></div>
-              
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.25rem" }}>
-                <button type="button" style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }} onClick={() => { setTab("forgot"); setError(""); }}>
-                  Forgot Password?
+            <div>
+              {/* Method Switcher */}
+              <div style={{ display: "flex", background: "rgba(255, 255, 255, 0.03)", borderRadius: 10, padding: 3, marginBottom: "1.25rem", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                <button
+                  type="button"
+                  onClick={() => { setSignInMethod("otp"); setError(""); }}
+                  style={{
+                    flex: 1,
+                    padding: "7px 10px",
+                    borderRadius: 7,
+                    border: "none",
+                    background: signInMethod === "otp" ? "rgba(16, 185, 129, 0.2)" : "transparent",
+                    color: signInMethod === "otp" ? "#34d399" : "var(--text-secondary)",
+                    fontWeight: signInMethod === "otp" ? 700 : 500,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  ⚡ One-Time Code / Magic Link
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSignInMethod("password"); setError(""); }}
+                  style={{
+                    flex: 1,
+                    padding: "7px 10px",
+                    borderRadius: 7,
+                    border: "none",
+                    background: signInMethod === "password" ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                    color: signInMethod === "password" ? "#fff" : "var(--text-secondary)",
+                    fontWeight: signInMethod === "password" ? 700 : 500,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  🔑 Password
                 </button>
               </div>
 
-              <button className="btn btn-p" onClick={handleLoginSubmit} disabled={loading}>
-                {loading ? "Signing in..." : "Sign in"}
-              </button>
-            </>
+              {/* METHOD 1: REAL EMAIL OTP / MAGIC LINK */}
+              {signInMethod === "otp" && (
+                <div>
+                  <div className="field" style={{ marginBottom: "1.25rem" }}>
+                    <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>
+                      Email Address
+                    </label>
+                    <input
+                      className="fi"
+                      type="email"
+                      value={le}
+                      onChange={(e) => setLe(e.target.value)}
+                      placeholder="yourname@college.edu.in or your@email.com"
+                      onKeyDown={(e) => e.key === "Enter" && !loginOtpSent && handleSendLoginOtp()}
+                      style={{ height: 44, fontSize: 14 }}
+                    />
+                  </div>
+
+                  {!loginOtpSent ? (
+                    <button
+                      className="btn btn-p"
+                      onClick={handleSendLoginOtp}
+                      disabled={loading || !le}
+                      style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}
+                    >
+                      {loading ? "Dispatching Code..." : "Send Verification Code ⚡"}
+                    </button>
+                  ) : (
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                      <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: "1.25rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "var(--em)" }}>📬 Verification Code Dispatched</span>
+                          <button
+                            type="button"
+                            onClick={() => { setLoginOtpSent(false); setLoginOtp(""); }}
+                            style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 11.5, cursor: "pointer", textDecoration: "underline" }}
+                          >
+                            Change email
+                          </button>
+                        </div>
+                        <div style={{ color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.45 }}>
+                          Code & 1-click link sent to <b style={{ color: "#fff" }}>{le}</b>. Check your inbox and spam folder.
+                        </div>
+                      </div>
+
+                      <div className="field" style={{ marginBottom: "1.25rem" }}>
+                        <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block", textAlign: "center" }}>
+                          Enter 6-Digit Code
+                        </label>
+                        <input
+                          className="fi"
+                          value={loginOtp}
+                          onChange={(e) => setLoginOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          placeholder="• • • • • •"
+                          maxLength={6}
+                          style={{ textAlign: "center", letterSpacing: 10, fontSize: 22, fontWeight: 800, height: 48 }}
+                          onKeyDown={(e) => e.key === "Enter" && loginOtp.length === 6 && handleVerifyLoginOtp()}
+                          autoFocus
+                        />
+                      </div>
+
+                      <button
+                        className="btn btn-p"
+                        onClick={handleVerifyLoginOtp}
+                        disabled={loading || loginOtp.length < 6}
+                        style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700, marginBottom: "0.75rem" }}
+                      >
+                        {loading ? "Verifying..." : "Verify Code & Sign In 🚀"}
+                      </button>
+
+                      <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={handleSendLoginOtp}
+                          disabled={loading || loginCountdown > 0}
+                          style={{ background: "none", border: "none", color: loginCountdown > 0 ? "var(--text-muted)" : "var(--text-secondary)", fontSize: 12, cursor: loginCountdown > 0 ? "default" : "pointer" }}
+                        >
+                          {loginCountdown > 0 ? `Resend code in ${loginCountdown}s` : "Didn't receive email? Click to Resend"}
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )}
+
+              {/* METHOD 2: STANDARD PASSWORD */}
+              {signInMethod === "password" && (
+                <div>
+                  <div className="field" style={{ marginBottom: "1rem" }}>
+                    <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Email Address</label>
+                    <input className="fi" value={le} onChange={(e) => setLe(e.target.value)} placeholder="your@email.com" style={{ height: 44 }} />
+                  </div>
+                  <div className="field" style={{ marginBottom: "0.5rem" }}>
+                    <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Password</label>
+                    <input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} style={{ height: 44 }} />
+                  </div>
+                  
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.25rem" }}>
+                    <button type="button" style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }} onClick={() => { setTab("forgot"); setError(""); }}>
+                      Forgot Password?
+                    </button>
+                  </div>
+
+                  <button className="btn btn-p" onClick={handleLoginSubmit} disabled={loading} style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}>
+                    {loading ? "Signing in..." : "Sign in with Password"}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
-          {tab === "register" && (
-            <>
-              <div className="field"><label>Full name</label><input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="Your full name" /></div>
-              <div className="field"><label>Email</label><input className="fi" type="email" value={re} onChange={(e) => setRe(e.target.value)} placeholder="your@email.com" /></div>
-              <div className="field"><label>Password</label><input className="fi" type="password" value={rp} onChange={(e) => setRp(e.target.value)} placeholder="Min 6 characters" /></div>
-              <div className="field"><label>College/Institution Name</label><CollegeAutocomplete value={rc} onChange={setRc} placeholder="e.g. Global Academy" /></div>
-              <div className="field"><label>Phone Number (Hashed Security Match)</label><input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="e.g. +91 9876543210" /></div>
-              <div className="field"><label>College ID / Roll No. (Hashed Security Match)</label><input className="fi" value={rpin} onChange={(e) => setRpin(e.target.value)} placeholder="e.g. 1GA21CS045" /></div>
-              <div className="field"><label>Bio</label><input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Brief intro..." /></div>
-              
-              {/* Mandatory Face Verification */}
-              <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
-
-              <button className="btn btn-p" onClick={handleRegisterSubmit} disabled={loading || !faceDescriptor}>
-                {loading ? "Creating account..." : !faceDescriptor ? "Face scan required to continue" : "Create account"}
-              </button>
-            </>
+          {/* ─── SIGN UP: ROLE PICKER ─── */}
+          {tab === "register" && !regRole && (
+            <LandingChoice
+              onSelectRole={(r) => { setRegRole(r); setError(""); }}
+              onBackToLogin={() => { setTab("login"); setRegRole(null); setError(""); }}
+            />
           )}
 
-          {tab === "forgot" && (
-            <>
-              <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
-                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                  Enter your email to request a reset signature.
-                </span>
+          {/* ─── SIGN UP: STUDENT FLOW (OTP + LIVE FACE) ─── */}
+          {tab === "register" && regRole === "student" && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", padding: "10px 14px", background: "rgba(16, 185, 129, 0.08)", borderRadius: 12, border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13.5, color: "var(--em)" }}>
+                  <span>🎓</span> Student Registration
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setRegRole(null); setError(""); }}
+                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Change role
+                </button>
               </div>
-              <div className="field"><label>Email Address</label><input className="fi" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="your@email.com" /></div>
-              <button className="btn btn-p" onClick={() => { setError(""); alert("Reset link dispatched to " + forgotEmail); setTab("login"); }} style={{ marginBottom: "1rem" }}>
-                Reset Password
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Full Legal Name</label>
+                  <input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="e.g. Alex Kumar" style={{ height: 42 }} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>College / Roll ID</label>
+                  <input className="fi" value={rpin} onChange={(e) => setRpin(e.target.value)} placeholder="Enter College ID / USN" style={{ height: 42 }} />
+                </div>
+              </div>
+
+              <div className="field" style={{ marginBottom: "1rem" }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>College / Institution</label>
+                <CollegeAutocomplete
+                  value={rc}
+                  onChange={(val) => { setRc(val); }}
+                  onSelectCollege={(doc) => { setSelectedCollegeDoc(doc); }}
+                  placeholder="Search and select your college..."
+                />
+              </div>
+
+              {/* College Email & OTP Verification */}
+              <div className="field" style={{ marginBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>College / Student Email</label>
+                  {emailVerified ? (
+                    <span style={{ fontSize: 11.5, color: "var(--em)", fontWeight: 700 }}>✓ Email Verified</span>
+                  ) : regOtpSent ? (
+                    <span style={{ fontSize: 11.5, color: "#34d399", fontWeight: 600 }}>Code Sent 📬</span>
+                  ) : null}
+                </div>
+                
+                <input
+                  className="fi"
+                  type="email"
+                  value={re}
+                  onChange={(e) => { setRe(e.target.value); setEmailVerified(false); }}
+                  placeholder="yourname@college.edu.in"
+                  style={{ width: "100%", height: 44, fontSize: 14 }}
+                />
+
+                {!emailVerified && !regOtpSent && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleSendRegOtp}
+                      disabled={loading || !re || !re.includes("@")}
+                      style={{
+                        width: "100%",
+                        height: 38,
+                        background: "rgba(16, 185, 129, 0.12)",
+                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                        borderRadius: 8,
+                        color: "var(--em)",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {loading ? "Sending Verification Code..." : "⚡ Send Verification Code to Email"}
+                    </button>
+                  </div>
+                )}
+
+                {/* OTP Input block for registration */}
+                {!emailVerified && regOtpSent && (
+                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 10, background: "rgba(16, 185, 129, 0.06)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                        Enter 6-digit code sent to <b style={{ color: "#fff" }}>{re}</b>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSendRegOtp}
+                        disabled={regCountdown > 0}
+                        style={{ background: "none", border: "none", color: regCountdown > 0 ? "var(--text-muted)" : "var(--em)", fontSize: 11, cursor: regCountdown > 0 ? "default" : "pointer" }}
+                      >
+                        {regCountdown > 0 ? `Resend (${regCountdown}s)` : "Resend code"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        className="fi"
+                        placeholder="• • • • • •"
+                        value={regOtp}
+                        onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        maxLength={6}
+                        style={{ flex: 1, height: 38, textAlign: "center", letterSpacing: 6, fontSize: 16, fontWeight: 800 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyRegOtp}
+                        disabled={loading || regOtp.length < 6}
+                        style={{
+                          padding: "0 16px",
+                          height: 38,
+                          borderRadius: 8,
+                          border: "none",
+                          background: "var(--em)",
+                          color: "#000",
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Verify OTP ✓
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Phone Number</label>
+                  <input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="10-digit mobile number" style={{ height: 42 }} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Skills & Department</label>
+                  <input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="e.g. CS, Python, AI" style={{ height: 42 }} />
+                </div>
+              </div>
+              
+              {/* Mandatory Live Biometric Verification */}
+              <div style={{ marginBottom: "1.25rem" }}>
+                <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
+              </div>
+
+              <button
+                className="btn btn-p"
+                onClick={handleStudentRegister}
+                disabled={loading || !faceDescriptor}
+                style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}
+              >
+                {loading ? "Creating student account..." : !faceDescriptor ? "Live face scan required to register" : "Complete Student Registration & Sign In 🎓"}
               </button>
-              <button className="btn btn-o" onClick={() => { setTab("login"); setError(""); }} style={{ width: "100%", justifyContent: "center" }}>
+
+              <div style={{ marginTop: "1rem", textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => { setRegRole("general_user"); setError(""); }}
+                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
+                >
+                  Not a student? Switch to General User signup →
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ─── SIGN UP: GENERAL USER FLOW (OTP + LIVE FACE) ─── */}
+          {tab === "register" && regRole === "general_user" && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", padding: "10px 14px", background: "rgba(139, 92, 246, 0.08)", borderRadius: 12, border: "1px solid rgba(139, 92, 246, 0.2)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13.5, color: "var(--purple)" }}>
+                  <span>⚡</span> General User Registration
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setRegRole(null); setError(""); }}
+                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Change role
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Full Name</label>
+                  <input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="Your full name" style={{ height: 42 }} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Phone Number</label>
+                  <input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="10-digit mobile number" style={{ height: 42 }} />
+                </div>
+              </div>
+
+              {/* Email & OTP Verification */}
+              <div className="field" style={{ marginBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Email Address</label>
+                  {emailVerified ? (
+                    <span style={{ fontSize: 11.5, color: "var(--em)", fontWeight: 700 }}>✓ Email Verified</span>
+                  ) : regOtpSent ? (
+                    <span style={{ fontSize: 11.5, color: "#34d399", fontWeight: 600 }}>Code Sent 📬</span>
+                  ) : null}
+                </div>
+                
+                <input
+                  className="fi"
+                  type="email"
+                  value={re}
+                  onChange={(e) => { setRe(e.target.value); setEmailVerified(false); }}
+                  placeholder="your@email.com"
+                  style={{ width: "100%", height: 44, fontSize: 14 }}
+                />
+
+                {!emailVerified && !regOtpSent && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleSendRegOtp}
+                      disabled={loading || !re || !re.includes("@")}
+                      style={{
+                        width: "100%",
+                        height: 38,
+                        background: "rgba(139, 92, 246, 0.12)",
+                        border: "1px solid rgba(139, 92, 246, 0.3)",
+                        borderRadius: 8,
+                        color: "var(--purple)",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {loading ? "Sending Verification Code..." : "⚡ Send Verification Code to Email"}
+                    </button>
+                  </div>
+                )}
+
+                {!emailVerified && regOtpSent && (
+                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 10, background: "rgba(139, 92, 246, 0.06)", border: "1px solid rgba(139, 92, 246, 0.2)", borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                        Enter 6-digit code sent to <b style={{ color: "#fff" }}>{re}</b>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSendRegOtp}
+                        disabled={regCountdown > 0}
+                        style={{ background: "none", border: "none", color: regCountdown > 0 ? "var(--text-muted)" : "var(--purple)", fontSize: 11, cursor: regCountdown > 0 ? "default" : "pointer" }}
+                      >
+                        {regCountdown > 0 ? `Resend (${regCountdown}s)` : "Resend code"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        className="fi"
+                        placeholder="• • • • • •"
+                        value={regOtp}
+                        onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        maxLength={6}
+                        style={{ flex: 1, height: 38, textAlign: "center", letterSpacing: 6, fontSize: 16, fontWeight: 800 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyRegOtp}
+                        disabled={loading || regOtp.length < 6}
+                        style={{
+                          padding: "0 16px",
+                          height: 38,
+                          borderRadius: 8,
+                          border: "none",
+                          background: "var(--purple)",
+                          color: "#fff",
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Verify OTP ✓
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="field" style={{ marginBottom: "1.25rem" }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Bio & Skills Offered</label>
+                <input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Skills offered / skills needed..." style={{ height: 42 }} />
+              </div>
+              
+              {/* Mandatory Live Face Verification */}
+              <div style={{ marginBottom: "1.25rem" }}>
+                <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
+              </div>
+
+              <button
+                className="btn btn-p"
+                onClick={handleGeneralRegister}
+                disabled={loading || !faceDescriptor}
+                style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}
+              >
+                {loading ? "Creating account..." : !faceDescriptor ? "Live face scan required to register" : "Complete Registration & Sign In ⚡"}
+              </button>
+
+              <div style={{ marginTop: "1rem", textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => { setRegRole("student"); setError(""); }}
+                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
+                >
+                  Are you a student? Switch to Student signup →
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ─── FORGOT PASSWORD ─── */}
+          {tab === "forgot" && (
+            <div>
+              <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+                  Enter your email address to receive password reset instructions.
+                </p>
+              </div>
+              <div className="field" style={{ marginBottom: "1.25rem" }}>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Email Address</label>
+                <input className="fi" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="your@email.com" style={{ height: 44 }} />
+              </div>
+              <button className="btn btn-p" onClick={() => { setError(""); alert("Reset instructions dispatched to " + forgotEmail); setTab("login"); }} style={{ marginBottom: "0.75rem", width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}>
+                Send Reset Link
+              </button>
+              <button className="btn btn-o" onClick={() => { setTab("login"); setError(""); }} style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14 }}>
                 Back to Sign In
               </button>
-            </>
+            </div>
           )}
         </motion.div>
-
-
       </div>
     </div>
   );
@@ -1889,38 +2743,57 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
   };
 
   return (
-    <div className="inner">
-      <div className="btwn mb2"><div className="ph" style={{ margin: 0 }}><h1>AICTE Activities</h1><p>Track your academic achievements</p></div><button className="btn btn-g" onClick={openSubmit}>+ Submit activity</button></div>
-      <motion.div className="g3 mb2" variants={stagger} initial="initial" animate="animate">
-        <motion.div className="stat" variants={fadeUp()}><div className="stat-l">Total points</div><div className="stat-v text-p">{totalPts}</div></motion.div>
-        <motion.div className="stat" variants={fadeUp(0.05)}><div className="stat-l">Credits earned</div><div className="stat-v text-g">{totalCr}</div></motion.div>
-        <motion.div className="stat" variants={fadeUp(0.1)}><div className="stat-l">Pending</div><div className="stat-v text-a">{pending.length}</div></motion.div>
-      </motion.div>
-      <div className="tab-bar">
-        <button className={`tb-btn${tab === "verified" ? " on" : ""}`} onClick={() => setTab("verified")}>Verified ({verified.length})</button>
-        <button className={`tb-btn${tab === "pending" ? " on" : ""}`} onClick={() => setTab("pending")}>Pending ({pending.length})</button>
-      </div>
-      {loading ? <div className="empty">Loading...</div> : shown.length === 0 ? (
-        <div className="empty">No {tab} activities.</div>
-      ) : (
-        <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
-          {shown.map((a) => (
-            <motion.div key={a._id} className="ac-card" variants={fadeUp()}>
-              <div className="btwn">
-                <div className="row"><span className={`tag ${a.verified ? "tg" : "ta"}`}>{a.verified ? "Verified" : "Pending"}</span><span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span></div>
-                <span className="text-m" style={{ fontSize: 12 }}>{a.date}</span>
-              </div>
-              <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{a.title}</div>
-              <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>Organized by {a.organizer}</div>
-              <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
-                <span className="text-p fw7">+{a.pts} pts</span>
-                <span className="text-g fw7">+{a.credits} credits</span>
-                {a.txHash && <a href={chain.txLink(a.txHash)} target="_blank" rel="noreferrer" style={{ color: "var(--em)" }}>Polygonscan ↗</a>}
-              </div>
-            </motion.div>
-          ))}
+    <div className="inner" style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+      {/* Verifiable AICTE Accreditation Hub & Blockchain Certificates */}
+      <AICTEProgress
+        user={user}
+        notify={notify}
+        onOpenVerify={(certId) => setModal(<VerifyCertificate certId={certId} onClose={() => setModal(null)} />)}
+      />
+
+      {/* Manual Activity Submission Ledger */}
+      <div>
+        <div className="btwn mb2">
+          <div className="ph" style={{ margin: 0 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>Institutional Activity Claims</h3>
+            <p style={{ margin: "4px 0 0", fontSize: 13 }}>Submit external hackathons, workshops, and verified college projects</p>
+          </div>
+          <button className="btn btn-g" onClick={openSubmit}>+ Submit Activity</button>
+        </div>
+
+        <motion.div className="g3 mb2" variants={stagger} initial="initial" animate="animate">
+          <motion.div className="stat" variants={fadeUp()}><div className="stat-l">Manual points</div><div className="stat-v text-p">{totalPts}</div></motion.div>
+          <motion.div className="stat" variants={fadeUp(0.05)}><div className="stat-l">Bonus credits</div><div className="stat-v text-g">{totalCr}</div></motion.div>
+          <motion.div className="stat" variants={fadeUp(0.1)}><div className="stat-l">Pending review</div><div className="stat-v text-a">{pending.length}</div></motion.div>
         </motion.div>
-      )}
+        
+        <div className="tab-bar">
+          <button className={`tb-btn${tab === "verified" ? " on" : ""}`} onClick={() => setTab("verified")}>Verified ({verified.length})</button>
+          <button className={`tb-btn${tab === "pending" ? " on" : ""}`} onClick={() => setTab("pending")}>Pending ({pending.length})</button>
+        </div>
+        
+        {loading ? <div className="empty">Loading activities...</div> : shown.length === 0 ? (
+          <div className="empty">No {tab} activities recorded.</div>
+        ) : (
+          <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
+            {shown.map((a) => (
+              <motion.div key={a._id} className="ac-card" variants={fadeUp()}>
+                <div className="btwn">
+                  <div className="row"><span className={`tag ${a.verified ? "tg" : "ta"}`}>{a.verified ? "Verified" : "Pending"}</span><span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span></div>
+                  <span className="text-m" style={{ fontSize: 12 }}>{a.date}</span>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{a.title}</div>
+                <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>Organized by {a.organizer}</div>
+                <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
+                  <span className="text-p fw7">+{a.pts} pts</span>
+                  <span className="text-g fw7">+{a.credits} credits</span>
+                  {a.txHash && <a href={chain.txLink(a.txHash)} target="_blank" rel="noreferrer" style={{ color: "var(--em)" }}>Polygonscan ↗</a>}
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
+      </div>
     </div>
   );
 }

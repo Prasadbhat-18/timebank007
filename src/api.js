@@ -34,6 +34,23 @@ export const login = (email, password, faceDescriptor, deviceFingerprint) =>
 export const register = (name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber) =>
   req("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password, bio, wallet, referralCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber }) });
 
+export const registerStudent = (data) =>
+  req("/auth/register/student", { method: "POST", body: JSON.stringify(data) });
+
+export const registerGeneral = (data) =>
+  req("/auth/register/general", { method: "POST", body: JSON.stringify(data) });
+
+export const sendOtp = (email, type = "login") =>
+  req("/auth/send-otp", { method: "POST", body: JSON.stringify({ email, type }) });
+
+export const verifyOtp = (email, otp, deviceFingerprint) =>
+  req("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp, deviceFingerprint }) });
+
+export const magicLogin = (token) =>
+  req(`/auth/magic-login/${token}`);
+
+export const fetchColleges = () => req("/colleges");
+
 export const websiteAdminLogin = (email, password) =>
   req("/auth/website-admin-login", { method: "POST", body: JSON.stringify({ email, password }) });
 
@@ -100,13 +117,6 @@ export const fetchServiceReviews = (serviceId) => req(`/reviews/service/${servic
 export const createReview = (data) =>
   req("/reviews", { method: "POST", body: JSON.stringify(data) });
 
-// ─── Notifications ───────────────────────────────────────────────────────────
-export const fetchNotifications = (userId) => req(`/notifications/user/${userId}`);
-export const fetchUnreadCount = (userId) => req(`/notifications/unread-count/${userId}`);
-export const markNotificationRead = (id) =>
-  req(`/notifications/${id}/read`, { method: "PUT" });
-export const markAllNotificationsRead = (userId) =>
-  req(`/notifications/read-all/${userId}`, { method: "PUT" });
 
 // ─── Disputes ────────────────────────────────────────────────────────────────
 export const fetchDisputes = () => req("/disputes");
@@ -125,7 +135,7 @@ export const fetchLeaderboard = (period = "all", category = "all") =>
 export const validateReferral = (code) =>
   req("/referral/validate", { method: "POST", body: JSON.stringify({ code }) });
 
-// ─── AICTE ───────────────────────────────────────────────────────────────────
+// ─── AICTE & Verifiable Certificates ─────────────────────────────────────────
 export const fetchAllAicte = () => req("/aicte");
 export const fetchUserAicte = (userId) => req(`/aicte/user/${userId}`);
 export const createAicte = (data) =>
@@ -134,6 +144,18 @@ export const verifyAicte = (id, txHash, blockNumber, pts, credits) =>
   req(`/aicte/${id}/verify`, { method: "POST", body: JSON.stringify({ txHash, blockNumber, pts, credits }) });
 export const rejectAicte = (id) =>
   req(`/aicte/${id}/reject`, { method: "POST" });
+export const fetchAicteActivityPoints = () =>
+  req("/aicte/activity-points");
+export const issueAicteCertificate = (periodStart, periodEnd) =>
+  req("/aicte/certificate/issue", { method: "POST", body: JSON.stringify({ periodStart, periodEnd }) });
+export const getCertificateDownloadUrl = (certId) =>
+  `${BASE}/aicte/certificate/${certId}/download`;
+export const verifyCertificatePublic = async (certId) => {
+  const res = await fetch(`${BASE}/aicte/verify/${certId}`);
+  return res.json();
+};
+export const fetchUserCertificates = (userId) =>
+  req(`/aicte/certificates/user/${userId}`);
 
 export const fetchRecommendations = () =>
   req("/recommendations");
@@ -158,6 +180,18 @@ export const submitReview = (data) =>
 
 export const sendAiChatMessage = (history, message) =>
   req("/ai-chat", { method: "POST", body: JSON.stringify({ history, message }) });
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+export const fetchNotifications = (userId) =>
+  req(userId ? `/notifications/user/${userId}` : "/notifications");
+export const fetchNotificationsList = () =>
+  req("/notifications");
+export const fetchUnreadCount = (userId) =>
+  req(`/notifications/unread-count/${userId}`);
+export const markNotificationRead = (id) =>
+  req(`/notifications/${id}/read`, { method: "POST" });
+export const markAllNotificationsRead = (userId) =>
+  req(userId ? `/notifications/read-all/${userId}` : "/notifications/read-all", { method: "POST" });
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
 export const fetchUserChats = (userId) => req(`/chats/user/${userId}`);
@@ -191,3 +225,6 @@ export const fetchInstitutionAdmins = () => req(`/website-admin/admins`);
 export const fetchFraudQueue = (prefix) => req(`/${prefix}/fraud-queue`);
 export const resolveFraudItem = (prefix, id, action, note) =>
   req(`/${prefix}/fraud-review/${id}/action`, { method: "POST", body: JSON.stringify({ action, note }) });
+export const fetchFlaggedAccounts = () => req("/admin/flagged-accounts");
+export const verifyUserAdmin = (userId, decision, reason) =>
+  req(`/admin/verify/${userId}`, { method: "POST", body: JSON.stringify({ decision, reason }) });

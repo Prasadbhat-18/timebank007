@@ -1,14 +1,18 @@
 // ─── TimeBank — API Routes ───────────────────────────────────────────────────
 import { Router } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import {
-  User, Skill, Service, Booking, Transaction,
-  Review, Notification, Dispute, Aicte, Chat, Emergency, Blockchain, FraudReview,
+  College, User, Skill, Service, Booking, Transaction,
+  Review, Notification, Certificate, Dispute, Aicte, Chat, Emergency, Blockchain, FraudReview, Otp,
 } from "./models.js";
 import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
 import {
   hashIdentifier, euclideanDistance, checkDuplicateRegistration, calculateTransactionRisk,
 } from "./fraudService.js";
+import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
+import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
+import { sendOtpEmail } from "./emailService.js";
 import fs from "fs";
 import path from "path";
 
@@ -17,10 +21,10 @@ const r = Router();
 const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
 
 function generateToken(user) {
-  return jwt.sign({ id: user._id, role: user.role, college: user.college }, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ id: user._id, role: user.role, college: user.college, collegeId: user.collegeId }, JWT_SECRET, { expiresIn: "7d" });
 }
 
-const requireAuth = (req, res, next) => {
+export const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "No token provided" });
@@ -28,16 +32,30 @@ const requireAuth = (req, res, next) => {
   const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // { id, role, college }
+    req.user = decoded; // { id, role, college, collegeId }
     next();
   } catch (err) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
 
-const requireRole = (roles) => {
+export const requireRole = (...roles) => {
+  const flattened = roles.flat();
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) {
+      return res.status(401).json({ error: "Access denied. Unauthorized." });
+    }
+    const role = req.user.role;
+    const match = flattened.some((targetRole) => {
+      if (targetRole === role) return true;
+      if ((targetRole === "super_admin" || targetRole === "websiteAdmin") && (role === "super_admin" || role === "websiteAdmin")) return true;
+      if ((targetRole === "institute_admin" || targetRole === "collegeAdmin") && (role === "institute_admin" || role === "collegeAdmin")) return true;
+      if ((targetRole === "general_user" || targetRole === "user") && (role === "general_user" || role === "user")) return true;
+      if (targetRole === "student" && role === "student") return true;
+      return false;
+    });
+
+    if (!match) {
       return res.status(403).json({ error: "Access denied. Insufficient permissions." });
     }
     next();
@@ -101,11 +119,6 @@ function generateMockTx() {
   return { txHash, blockNumber };
 }
 
-// Euclidean distance between two face descriptors (128-dim vectors)
-function euclideanDistance(a, b) {
-  if (!a || !b || a.length !== b.length) return Infinity;
-  return Math.sqrt(a.reduce((sum, val, i) => sum + (val - b[i]) ** 2, 0));
-}
 const FACE_MATCH_THRESHOLD = 0.6; // lower = stricter
 
 // Compute the correct level for a user based on XP and rating
@@ -198,9 +211,9 @@ async function checkAndAwardBadges(user) {
   return newBadges;
 }
 
-// Create notification helper
+// Create notification helper with real-time push support
 async function createNotification(userId, type, title, message, data = {}) {
-  return Notification.create({ userId, type, title, message, data });
+  return pushNotification(userId, { type, title, message, body: message, data });
 }
 
 // ─── SEED DEFAULT SKILLS ─────────────────────────────────────────────────────
@@ -254,11 +267,50 @@ export async function seedAdmin() {
   }
 }
 
+// Seed default colleges
+export async function seedColleges() {
+  const count = await College.countDocuments();
+  if (count === 0) {
+    const DEFAULT_COLLEGES = [
+      { name: "National Institute of Technology Karnataka (NITK)", emailDomain: "nitk.edu.in", code: "NITK", city: "Surathkal", state: "Karnataka" },
+      { name: "Indian Institute of Technology Bombay (IITB)", emailDomain: "iitb.ac.in", code: "IITB", city: "Mumbai", state: "Maharashtra" },
+      { name: "BITS Pilani", emailDomain: "bits-pilani.ac.in", code: "BITS", city: "Pilani", state: "Rajasthan" },
+      { name: "Delhi Technological University (DTU)", emailDomain: "dtu.ac.in", code: "DTU", city: "New Delhi", state: "Delhi" },
+      { name: "PES University", emailDomain: "pes.edu", code: "PESU", city: "Bengaluru", state: "Karnataka" },
+      { name: "RV College of Engineering", emailDomain: "rvce.edu.in", code: "RVCE", city: "Bengaluru", state: "Karnataka" },
+      { name: "Global Academy of Technology", emailDomain: "global.edu.in", code: "GAT", city: "Bengaluru", state: "Karnataka" },
+    ];
+    await College.insertMany(DEFAULT_COLLEGES);
+    console.log("  ✓ Default colleges seeded");
+  }
+}
+
+// ─── COLLEGES ────────────────────────────────────────────────────────────────
+r.get("/colleges", async (_req, res) => {
+  try {
+    const colleges = await College.find().sort({ name: 1 });
+    res.json(colleges);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/colleges", requireAuth, requireRole("super_admin", "websiteAdmin"), async (req, res) => {
+  try {
+    const { name, emailDomain, code, city, state } = req.body;
+    if (!name || !emailDomain) return res.status(400).json({ error: "Name and email domain are required" });
+    const college = await College.create({ name, emailDomain: emailDomain.toLowerCase().replace(/^@/, ""), code, city, state });
+    res.status(201).json(college);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 r.post("/auth/login", async (req, res) => {
   try {
     const { email, password, faceDescriptor, deviceFingerprint } = req.body;
-    const user = await User.findOne({ email: email.toLowerCase(), password });
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim(), password });
     if (!user) return res.status(401).json({ error: "Invalid email or password" });
 
     if (user.isBlocked) {
@@ -275,6 +327,7 @@ r.post("/auth/login", async (req, res) => {
     // Track device fingerprint
     let newDevice = false;
     if (deviceFingerprint) {
+      if (!user.deviceFingerprints) user.deviceFingerprints = [];
       if (!user.deviceFingerprints.includes(deviceFingerprint)) {
         user.deviceFingerprints.push(deviceFingerprint);
         newDevice = true;
@@ -287,17 +340,264 @@ r.post("/auth/login", async (req, res) => {
 
     const token = generateToken(user);
     res.json({ token, user, faceMatch, newDevice });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-r.post("/auth/register", async (req, res) => {
+// ─── REAL-TIME OTP & MAGIC LOGIN ─────────────────────────────────────────────
+r.post("/auth/send-otp", async (req, res) => {
   try {
-    const { name, email, password, bio, wallet, referralCode: refCode, college, faceDescriptor, deviceFingerprint, phone, collegeIdNumber } = req.body;
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
+    const { email, type = "login" } = req.body;
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "Please provide a valid email address." });
+    }
 
-    // 1. Run multi-layered fraud detection engine
+    const cleanEmail = email.toLowerCase().trim();
+    const domain = cleanEmail.split("@")[1] || "";
+
+    // Check if this domain belongs to a recognized college
+    const college = await College.findOne({ emailDomain: domain.toLowerCase() });
+
+    // Generate 6-digit OTP code with 3-minute validity
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const magicToken = crypto.randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+
+    await Otp.create({
+      email: cleanEmail,
+      code,
+      token: magicToken,
+      type,
+      expiresAt,
+      used: false,
+    });
+
+    const user = await User.findOne({ email: cleanEmail });
+    const collegeTitle = college ? college.name : (user?.college || "College Official Mail Gateway");
+
+    // Send real email via SMTP / College Mail Gateway with HTML template and 1-click magic link
+    sendOtpEmail({
+      to: cleanEmail,
+      code,
+      magicToken,
+      collegeName: collegeTitle,
+      type,
+    }).catch(err => {
+      console.error(`Error sending OTP email to ${cleanEmail}:`, err.message);
+    });
+
+    // Respond immediately (< 15ms) to frontend so UI transitions instantaneously
+    return res.json({
+      success: true,
+      message: `A verification code and 1-click login link has been sent to ${cleanEmail}. Please check your inbox or spam folder.`,
+      collegeName: collegeTitle,
+      expiresAt,
+      previewUrl: null,
+    });
+  } catch (e) {
+    console.error("Error sending OTP email:", e);
+    res.status(500).json({ error: e.message || "Failed to dispatch verification code to email." });
+  }
+});
+
+r.post("/auth/verify-otp", async (req, res) => {
+  try {
+    const { email, otp, deviceFingerprint } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and 6-digit verification code are required." });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanOtp = String(otp).trim();
+
+    const otpDoc = await Otp.findOne({
+      email: cleanEmail,
+      code: cleanOtp,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+
+    if (!otpDoc) {
+      return res.status(400).json({ error: "Invalid or expired verification code. Please request a new code." });
+    }
+
+    otpDoc.used = true;
+    await otpDoc.save();
+    // Invalidate all pending OTPs for this email now that verification succeeded
+    await Otp.updateMany({ email: cleanEmail, used: false }, { used: true });
+
+    // Check if user exists in database
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (user) {
+      if (user.isBlocked) {
+        return res.status(403).json({ error: "Your account has been suspended/blocked due to policy violations." });
+      }
+
+      // Track device fingerprint
+      let newDevice = false;
+      if (deviceFingerprint) {
+        if (!user.deviceFingerprints) user.deviceFingerprints = [];
+        if (!user.deviceFingerprints.includes(deviceFingerprint)) {
+          user.deviceFingerprints.push(deviceFingerprint);
+          newDevice = true;
+        }
+      }
+
+      user.lastActiveAt = new Date();
+      await user.save();
+
+      const token = generateToken(user);
+      return res.json({
+        success: true,
+        isRegistered: true,
+        token,
+        user,
+        newDevice,
+        message: "Successfully logged in via one-time verification code! 🎉",
+      });
+    }
+
+    // Auto-create and log in student if this is their first time signing in with this email
+    const domain = cleanEmail.split("@")[1] || "";
+    const college = await College.findOne({ emailDomain: domain.toLowerCase() });
+    const rawName = cleanEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const avatar = (rawName || "TB").slice(0, 2).toUpperCase();
+    const referralCode = "TB-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const newUser = await User.create({
+      name: rawName || "Student",
+      email: cleanEmail,
+      password: "otp_authenticated",
+      role: "student", // default to student role so all student features are immediately unlocked
+      college: college ? college.name : "Registered Institution",
+      collegeId: college ? college._id : null,
+      credits: 10,
+      avatar,
+      verificationStatus: "verified",
+      welcomeShown: false,
+      referralCode,
+      lastActiveAt: new Date(),
+    });
+
+    const token = generateToken(newUser);
+    return res.json({
+      success: true,
+      isRegistered: true,
+      isNewUser: true,
+      token,
+      user: newUser,
+      message: `Welcome to TimeBank! Your ${newUser.role === "student" ? "Student" : "User"} account was verified with 10 starter credits! 🚀`,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "Failed to verify code." });
+  }
+});
+
+r.get("/auth/magic-login/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const otpDoc = await Otp.findOne({
+      token,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!otpDoc) {
+      return res.status(400).json({ error: "Magic login link has expired or has already been used." });
+    }
+
+    otpDoc.used = true;
+    await otpDoc.save();
+
+    let user = await User.findOne({ email: otpDoc.email });
+    if (!user) {
+      const domain = otpDoc.email.split("@")[1] || "";
+      const college = await College.findOne({ emailDomain: domain.toLowerCase() });
+      const rawName = otpDoc.email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const avatar = (rawName || "TB").slice(0, 2).toUpperCase();
+      const referralCode = "TB-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      user = await User.create({
+        name: rawName || "Student",
+        email: otpDoc.email,
+        password: "otp_authenticated",
+        role: college ? "student" : (domain.includes(".edu") || domain.includes(".ac.") ? "student" : "general_user"),
+        college: college ? college.name : (domain.includes(".edu") ? domain : ""),
+        collegeId: college ? college._id : null,
+        credits: 10,
+        avatar,
+        verificationStatus: "verified",
+        welcomeShown: false,
+        referralCode,
+        lastActiveAt: new Date(),
+      });
+    } else {
+      user.lastActiveAt = new Date();
+      await user.save();
+    }
+
+    const jwtToken = generateToken(user);
+    res.json({
+      success: true,
+      isRegistered: true,
+      token: jwtToken,
+      user,
+      message: "One-click magic login successful! 🚀",
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Magic login failed." });
+  }
+});
+
+// ─── STUDENT REGISTRATION ────────────────────────────────────────────────────
+r.post("/auth/register/student", async (req, res) => {
+  try {
+    const {
+      name, email, password, bio, wallet, referralCode: refCode,
+      collegeId, college: collegeName, collegeIdNumber,
+      faceDescriptor, faceEmbedding, deviceFingerprint, phone, otp,
+    } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: "Full legal name and college email are required." });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Verify OTP if provided
+    if (otp) {
+      const validOtp = await Otp.findOne({
+        email: cleanEmail,
+        code: otp.trim(),
+        createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
+      }).sort({ createdAt: -1 });
+      if (!validOtp) {
+        return res.status(400).json({ error: "Invalid or expired email verification code." });
+      }
+      validOtp.used = true;
+      await validOtp.save();
+    }
+
+    // Resolve college if provided (without restricting student's email domain)
+    let resolvedCollege = null;
+    if (collegeId) {
+      resolvedCollege = await College.findById(collegeId);
+    }
+    if (!resolvedCollege && collegeName) {
+      resolvedCollege = await College.findOne({
+        $or: [{ name: new RegExp(`^${collegeName}$`, "i") }, { code: new RegExp(`^${collegeName}$`, "i") }],
+      });
+    }
+
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
+    const activeFace = faceDescriptor || faceEmbedding;
+
     const fraudCheck = await checkDuplicateRegistration({
-      email, phone, collegeIdNumber, faceDescriptor, deviceFingerprint, ip,
+      email: cleanEmail, phone, collegeIdNumber, faceDescriptor: activeFace, deviceFingerprint, ip,
     });
 
     if (fraudCheck.blocked) {
@@ -310,7 +610,6 @@ r.post("/auth/register", async (req, res) => {
 
     const avatar = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
 
-    // Generate unique referral code
     let referralCode;
     let attempts = 0;
     do {
@@ -318,7 +617,6 @@ r.post("/auth/register", async (req, res) => {
       attempts++;
     } while (await User.findOne({ referralCode }) && attempts < 10);
 
-    // Check if referred by someone
     let referredBy = "";
     if (refCode) {
       const referrer = await User.findOne({ referralCode: refCode.toUpperCase() });
@@ -327,22 +625,40 @@ r.post("/auth/register", async (req, res) => {
 
     const phoneHash = phone ? hashIdentifier(phone) : undefined;
     const idNumberHash = collegeIdNumber ? hashIdentifier(collegeIdNumber) : undefined;
+    const finalPassword = password || crypto.randomBytes(16).toString("hex");
 
     const user = await User.create({
-      name, email: email.toLowerCase(), password, bio, avatar, college,
-      role: "user", wallet: wallet || "", credits: 10, earned: 0, spent: 0,
-      aictePoints: 0, rep: 0, reviews: 0,
-      level: 1, xp: 0, referralCode, referredBy,
+      name,
+      email: cleanEmail,
+      password: finalPassword,
+      bio: bio || "",
+      avatar,
+      role: "student",
+      college: resolvedCollege ? resolvedCollege.name : (collegeName || ""),
+      collegeId: resolvedCollege ? resolvedCollege._id : null,
+      collegeIdNumber: collegeIdNumber || "",
+      wallet: wallet || "",
+      credits: 10,
+      earned: 0,
+      spent: 0,
+      aictePoints: 0,
+      rep: 0,
+      reviews: 0,
+      level: 1,
+      xp: 0,
+      referralCode,
+      referredBy,
       welcomeShown: false,
-      faceDescriptor,
+      faceDescriptor: activeFace,
       deviceFingerprints: deviceFingerprint ? [deviceFingerprint] : [],
-      phoneHash, idNumberHash, registrationIp: ip,
-      verificationStatus: fraudCheck.flagged ? "flagged" : "verified",
+      phoneHash,
+      idNumberHash,
+      registrationIp: ip,
+      verificationStatus: fraudCheck.flagged ? "flagged" : "pending",
       riskScore: fraudCheck.riskScore,
       flaggedReasons: fraudCheck.reasons,
     });
 
-    // If soft flagged (score 40..99), queue for Admin Review
     if (fraudCheck.flagged) {
       await FraudReview.create({
         type: "user",
@@ -353,17 +669,15 @@ r.post("/auth/register", async (req, res) => {
         status: "pending",
       });
 
-      await createNotification(user._id, "warning",
-        "Account Flagged for Verification ⚠️",
-        "Your account triggered a soft security check (e.g. shared device/network). An administrator will review your account shortly.",
-        { reasons: fraudCheck.reasons }
-      );
+      await pushNotification(user._id, {
+        type: "flagged_review",
+        title: "Student Account Under Review ⚠️",
+        body: "Your account triggered a soft security check and has been routed to your institute administrator for verification.",
+        data: { reasons: fraudCheck.reasons },
+      });
     }
 
-    // Generate blockchain receipt for welcome bonus
     const { txHash, blockNumber } = generateMockTx();
-
-    // Record welcome bonus transaction
     await Transaction.create({
       fromId: "SYSTEM", toId: user._id.toString(), bookingId: null,
       amount: 10, type: "initial_credits", desc: "Welcome bonus — 10 starter credits",
@@ -376,15 +690,233 @@ r.post("/auth/register", async (req, res) => {
       amount: 10, type: "MINT",
     });
 
-    // Create welcome notification
-    await createNotification(user._id, "welcome",
-      "Welcome to TimeBank! 🎉",
-      "You've received 10 credits to get started. Explore services and start exchanging skills!",
-      { credits: 10 }
-    );
+    await pushNotification(user._id, {
+      type: "welcome",
+      title: "Welcome to TimeBank Student Network! 🎓",
+      body: "You've received 10 starter credits. Start exchanging skills and earn AICTE activity points!",
+      data: { credits: 10 },
+    });
 
     const token = generateToken(user);
-    res.status(201).json({ token, user });
+    res.status(201).json({
+      token,
+      user,
+      message: fraudCheck.flagged ? "Submitted for review." : "Student account created successfully.",
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "Registration failed." });
+  }
+});
+
+// ─── GENERAL USER REGISTRATION ───────────────────────────────────────────────
+r.post("/auth/register/general", async (req, res) => {
+  try {
+    const {
+      name, email, password, bio, wallet, referralCode: refCode,
+      faceDescriptor, faceEmbedding, deviceFingerprint, phone, otp,
+    } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: "Full name and email address are required." });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Verify OTP if provided
+    if (otp) {
+      const validOtp = await Otp.findOne({
+        email: cleanEmail,
+        code: otp.trim(),
+        createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
+      }).sort({ createdAt: -1 });
+      if (!validOtp) {
+        return res.status(400).json({ error: "Invalid or expired email verification code." });
+      }
+      validOtp.used = true;
+      await validOtp.save();
+    }
+
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
+    const activeFace = faceDescriptor || faceEmbedding;
+
+    const fraudCheck = await checkDuplicateRegistration({
+      email: cleanEmail, phone, faceDescriptor: activeFace, deviceFingerprint, ip,
+    });
+
+    if (fraudCheck.blocked) {
+      return res.status(409).json({
+        error: "We could not create this account — it looks like it may already exist.",
+        code: "DUPLICATE_ACCOUNT",
+        reasons: fraudCheck.reasons,
+      });
+    }
+
+    const avatar = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+    let referralCode;
+    let attempts = 0;
+    do {
+      referralCode = generateReferralCode();
+      attempts++;
+    } while (await User.findOne({ referralCode }) && attempts < 10);
+
+    let referredBy = "";
+    if (refCode) {
+      const referrer = await User.findOne({ referralCode: refCode.toUpperCase() });
+      if (referrer) referredBy = refCode.toUpperCase();
+    }
+
+    const phoneHash = phone ? hashIdentifier(phone) : undefined;
+    const finalPassword = password || crypto.randomBytes(16).toString("hex");
+
+    const user = await User.create({
+      name,
+      email: cleanEmail,
+      password: finalPassword,
+      bio: bio || "",
+      avatar,
+      role: "general_user",
+      college: "",
+      wallet: wallet || "",
+      credits: 10,
+      earned: 0,
+      spent: 0,
+      aictePoints: 0,
+      rep: 0,
+      reviews: 0,
+      level: 1,
+      xp: 0,
+      referralCode,
+      referredBy,
+      welcomeShown: false,
+      faceDescriptor: activeFace,
+      deviceFingerprints: deviceFingerprint ? [deviceFingerprint] : [],
+      phoneHash,
+      registrationIp: ip,
+      verificationStatus: fraudCheck.flagged ? "flagged" : "verified",
+      riskScore: fraudCheck.riskScore,
+      flaggedReasons: fraudCheck.reasons,
+    });
+
+    if (fraudCheck.flagged) {
+      await FraudReview.create({
+        type: "user",
+        targetId: user._id,
+        userId: user._id,
+        riskScore: fraudCheck.riskScore,
+        reasons: fraudCheck.reasons,
+        status: "pending",
+      });
+
+      await pushNotification(user._id, {
+        type: "flagged_review",
+        title: "Account Under Review ⚠️",
+        body: "Your account triggered a soft security check and has been queued for administrator verification.",
+        data: { reasons: fraudCheck.reasons },
+      });
+    }
+
+    const { txHash, blockNumber } = generateMockTx();
+    await Transaction.create({
+      fromId: "SYSTEM", toId: user._id.toString(), bookingId: null,
+      amount: 10, type: "initial_credits", desc: "Welcome bonus — 10 starter credits",
+      txHash, blockNumber,
+    });
+
+    await Blockchain.create({
+      block: blockNumber, txHash,
+      from: "SYSTEM", to: wallet || user._id.toString(),
+      amount: 10, type: "MINT",
+    });
+
+    await pushNotification(user._id, {
+      type: "welcome",
+      title: "Welcome to TimeBank! 🎉",
+      body: "You've received 10 starter credits to begin exchanging skills!",
+      data: { credits: 10 },
+    });
+
+    const token = generateToken(user);
+    res.status(201).json({
+      token,
+      user,
+      message: fraudCheck.flagged ? "Submitted for review." : "Account created successfully.",
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "Registration failed." });
+  }
+});
+
+// ─── GENERAL REGISTRATION (Backward Compatible) ──────────────────────────────
+r.post("/auth/register", async (req, res) => {
+  try {
+    const { role } = req.body;
+    if (role === "student" || req.body.college || req.body.collegeId) {
+      // Delegate to student registration logic
+      req.url = "/auth/register/student";
+      return r.handle(req, res);
+    }
+    req.url = "/auth/register/general";
+    return r.handle(req, res);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── ADMIN VERIFICATION & FLAGGED ACCOUNTS ────────────────────────────────────
+r.get("/admin/flagged-accounts", requireAuth, requireRole("super_admin", "websiteAdmin", "institute_admin", "collegeAdmin"), async (req, res) => {
+  try {
+    let query = { verificationStatus: { $in: ["flagged", "pending"] } };
+    if (req.user.role === "institute_admin" || req.user.role === "collegeAdmin") {
+      query = {
+        role: "student",
+        verificationStatus: { $in: ["flagged", "pending"] },
+        college: req.user.college,
+      };
+    }
+    const flagged = await User.find(query)
+      .select("name email role college collegeIdNumber riskScore flaggedReasons verificationStatus createdAt")
+      .populate("collegeId", "name emailDomain")
+      .sort({ createdAt: -1 });
+    res.json(flagged);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/admin/verify/:userId", requireAuth, requireRole("super_admin", "websiteAdmin", "institute_admin", "collegeAdmin"), async (req, res) => {
+  try {
+    const { decision, reason } = req.body; // 'approve' | 'reject' | 'block'
+    const target = await User.findById(req.params.userId);
+    if (!target) return res.status(404).json({ error: "User not found." });
+
+    if (req.user.role === "institute_admin" || req.user.role === "collegeAdmin") {
+      if (target.role !== "student" || String(target.college).toLowerCase() !== String(req.user.college).toLowerCase()) {
+        return res.status(403).json({ error: "Access denied. You can only verify students from your college." });
+      }
+    }
+
+    target.verificationStatus = decision === "approve" ? "verified" : "rejected";
+    if (decision === "block") {
+      target.isBlocked = true;
+    }
+    target.reviewedBy = req.user.id;
+    target.reviewedAt = new Date();
+    if (decision !== "approve") target.rejectionReason = reason || "Verification not granted";
+    if (decision === "approve") target.riskScore = 0;
+    await target.save();
+
+    // Push real-time notification to user
+    await pushNotification(target._id, {
+      type: "verification_decision",
+      title: decision === "approve" ? "You're Verified! 🎉" : "Verification Update ⚠️",
+      body: decision === "approve"
+        ? "Your account has been officially verified. You have full access to peer exchanges!"
+        : (reason || "Please check with your institute administrator."),
+      data: { decision, reviewedAt: target.reviewedAt },
+    });
+
+    res.json({ message: `Account ${decision}d.`, user: target });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1213,10 +1745,303 @@ r.post("/referral/validate", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── AICTE ───────────────────────────────────────────────────────────────────
-r.get("/aicte", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+// ─── AICTE & ACTIVITY POINTS ──────────────────────────────────────────────────
+r.get("/aicte/activity-points", requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    const studentId = req.user.id;
+
+    // Completed exchanges where user was provider or requester
+    const completedBookings = await Booking.find({
+      $or: [{ providerId: studentId }, { requesterId: studentId }],
+      status: "completed",
+    });
+
+    const completedTxns = await Transaction.find({
+      $or: [{ fromId: String(studentId) }, { toId: String(studentId) }],
+      type: "service_completed",
+    });
+
+    const manualAicte = await Aicte.find({ userId: studentId, verified: true });
+    const manualPts = manualAicte.reduce((sum, a) => sum + (a.pts || 0), 0);
+
+    const bookingHours = completedBookings.reduce((sum, b) => sum + (b.hours || 0), 0);
+    const totalHours = bookingHours > 0 ? bookingHours : completedTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const exchangeCount = completedBookings.length > 0 ? completedBookings.length : completedTxns.length;
+    
+    // AICTE Activity Points scheme: 1 credit/hour = 1 point + bonus for verified workshops/projects
+    const activityPoints = totalHours + manualPts;
+
+    res.json({
+      totalHours,
+      activityPoints,
+      exchangeCount,
+      manualActivitiesCount: manualAicte.length,
+      manualPoints: manualPts,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Issue Verifiable AICTE Certificate
+r.post("/aicte/certificate/issue", requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    const { periodStart, periodEnd } = req.body;
+    if (!periodStart || !periodEnd) {
+      return res.status(400).json({ error: "Please provide periodStart and periodEnd dates." });
+    }
+
+    const student = await User.findById(req.user.id);
+    if (!student) return res.status(404).json({ error: "Student not found." });
+
+    const startDate = new Date(periodStart);
+    const endDate = new Date(periodEnd);
+    endDate.setHours(23, 59, 59, 999);
+
+    const completedBookings = await Booking.find({
+      $or: [{ providerId: student._id }, { requesterId: student._id }],
+      status: "completed",
+      createdAt: { $gte: startDate, $lte: endDate },
+    });
+
+    const completedTxns = await Transaction.find({
+      $or: [{ fromId: String(student._id) }, { toId: String(student._id) }],
+      type: "service_completed",
+      createdAt: { $gte: startDate, $lte: endDate },
+    });
+
+    const bookingHours = completedBookings.reduce((sum, b) => sum + (b.hours || 0), 0);
+    const totalHours = bookingHours > 0 ? bookingHours : completedTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const exchangeCount = completedBookings.length > 0 ? completedBookings.length : completedTxns.length;
+
+    // Fetch verified academic activities in the period
+    const manualAicte = await Aicte.find({
+      userId: student._id,
+      verified: true,
+      createdAt: { $gte: startDate, $lte: endDate },
+    });
+    const manualPts = manualAicte.reduce((sum, a) => sum + (a.pts || 0), 0);
+    const activityPoints = totalHours + manualPts;
+
+    // Anchor on mock Polygon blockchain
+    const { txHash, blockNumber } = generateMockTx();
+    await Blockchain.create({
+      block: blockNumber,
+      txHash,
+      from: student.wallet || student._id.toString(),
+      to: "0x000000000000000000000000000000000000CERT",
+      amount: activityPoints,
+      type: "MINT_CERT",
+    });
+
+    const cert = await issueCertificate({
+      userId: student._id,
+      collegeId: student.collegeId || student.college,
+      activityPoints,
+      totalHours,
+      exchangeCount,
+      periodStart: startDate,
+      periodEnd: endDate,
+      txHash,
+      blockNumber,
+    });
+
+    await pushNotification(student._id, {
+      type: "badge",
+      title: "AICTE Certificate Issued! 📜",
+      body: `Your certificate for ${activityPoints} points has been cryptographically generated and anchored to Polygon Amoy.`,
+      data: { certId: cert.certId, activityPoints, txHash },
+    });
+
+    res.status(201).json({
+      certId: cert.certId,
+      cert,
+      message: "Certificate generated successfully.",
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || "Failed to issue certificate." });
+  }
+});
+
+// Download PDF Certificate
+r.get("/aicte/certificate/:certId/download", async (req, res) => {
+  try {
+    const cert = await Certificate.findOne({ certId: req.params.certId });
+    if (!cert) return res.status(404).json({ error: "Certificate not found." });
+
+    const student = await User.findById(cert.user);
+    let college = null;
+    if (cert.college) {
+      if (typeof cert.college === "string" && cert.college.match(/^[0-9a-fA-F]{24}$/)) {
+        college = await College.findById(cert.college);
+      } else if (typeof cert.college === "string") {
+        college = await College.findOne({ name: cert.college }) || { name: cert.college };
+      } else {
+        college = await College.findById(cert.college);
+      }
+    }
+    if (!college && student?.college) {
+      college = { name: student.college };
+    }
+
+    const host = req.get("host");
+    const protocol = req.protocol;
+    const clientUrl = process.env.CLIENT_URL || `${protocol}://${host}`;
+
+    const pdfBuffer = await renderCertificatePdf(cert, student, college, clientUrl);
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=aicte-certificate-${cert.certId.slice(0, 8)}.pdf`,
+      "Content-Length": pdfBuffer.length,
+    });
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUBLIC Verification Endpoint — QR Code scan target
+r.get("/aicte/verify/:certId", async (req, res) => {
+  try {
+    const cert = await Certificate.findOne({ certId: req.params.certId });
+    if (!cert) {
+      return res.status(404).json({ valid: false, message: "Certificate not found or invalid ID." });
+    }
+
+    const student = await User.findById(cert.user).select("name email college");
+    let collegeName = "Recognized Technical Institution";
+    if (cert.college) {
+      if (typeof cert.college === "string" && cert.college.match(/^[0-9a-fA-F]{24}$/)) {
+        const colDoc = await College.findById(cert.college);
+        if (colDoc) collegeName = colDoc.name;
+      } else if (typeof cert.college === "string") {
+        collegeName = cert.college;
+      }
+    } else if (student?.college) {
+      collegeName = student.college;
+    }
+
+    const recomputed = computeHash({
+      userId: cert.user,
+      collegeId: cert.college,
+      activityPoints: cert.activityPoints,
+      totalHours: cert.totalHours,
+      exchangeCount: cert.exchangeCount,
+      periodStart: cert.periodStart,
+      periodEnd: cert.periodEnd,
+    });
+
+    const isValid = recomputed === cert.integrityHash;
+
+    res.json({
+      valid: isValid,
+      certId: cert.certId,
+      studentName: student?.name || "Student",
+      studentEmail: student?.email || "",
+      college: collegeName,
+      activityPoints: cert.activityPoints,
+      totalHours: cert.totalHours,
+      exchangeCount: cert.exchangeCount,
+      period: {
+        start: cert.periodStart,
+        end: cert.periodEnd,
+      },
+      integrityHash: cert.integrityHash,
+      txHash: cert.txHash,
+      blockNumber: cert.blockNumber,
+      issuedAt: cert.createdAt,
+    });
+  } catch (e) {
+    res.status(500).json({ valid: false, error: e.message });
+  }
+});
+
+// List certificates for a user
+r.get("/aicte/certificates/user/:userId", requireAuth, async (req, res) => {
+  try {
+    const certs = await Certificate.find({ user: req.params.userId }).sort({ createdAt: -1 });
+    res.json(certs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+r.get("/notifications", requireAuth, async (req, res) => {
+  try {
+    const notifs = await Notification.find({
+      $or: [{ userId: req.user.id }, { user: req.user.id }],
+    }).sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.get("/notifications/user/:userId", async (req, res) => {
+  try {
+    const notifs = await Notification.find({
+      $or: [{ userId: req.params.userId }, { user: req.params.userId }],
+    }).sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/notifications/:id/read", requireAuth, async (req, res) => {
+  try {
+    await Notification.updateOne(
+      { _id: req.params.id, $or: [{ userId: req.user.id }, { user: req.user.id }] },
+      { read: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.put("/notifications/:id/read", requireAuth, async (req, res) => {
+  try {
+    await Notification.updateOne(
+      { _id: req.params.id, $or: [{ userId: req.user.id }, { user: req.user.id }] },
+      { read: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/notifications/read-all", requireAuth, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { $or: [{ userId: req.user.id }, { user: req.user.id }], read: false },
+      { read: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.put("/notifications/read-all/:userId", requireAuth, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { $or: [{ userId: req.params.userId }, { user: req.params.userId }], read: false },
+      { read: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.get("/aicte", requireAuth, requireRole(["websiteAdmin", "collegeAdmin", "super_admin", "institute_admin"]), async (req, res) => {
   try { 
-    if (req.user.role === "collegeAdmin") {
+    if (req.user.role === "collegeAdmin" || req.user.role === "institute_admin") {
       res.json(await Aicte.find({ college: req.user.college }).populate("userId", "name college avatar").sort({ createdAt: -1 }));
     } else {
       res.json(await Aicte.find().populate("userId", "name college avatar").sort({ createdAt: -1 }));
@@ -1866,6 +2691,30 @@ r.post("/college-admin/fraud-review/:id/action", requireAuth, requireRole(["coll
     }
     res.json(item);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── AI WEBSITE CHATBOT ENDPOINT ─────────────────────────────────────────────
+r.post("/ai-chat", async (req, res) => {
+  try {
+    const { history, message } = req.body;
+    let currentUser = { name: "Guest User", role: "user" };
+    
+    if (req.headers.authorization) {
+      try {
+        const token = req.headers.authorization.split(" ")[1];
+        if (token) {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET || "timebank_secret_key");
+          const dbUser = await User.findById(decoded.id);
+          if (dbUser) currentUser = dbUser;
+        }
+      } catch {}
+    }
+
+    const reply = await handleWebsiteChat(history || [], message || "", currentUser);
+    res.json({ reply });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default r;
