@@ -14,7 +14,15 @@ async function req(path, opts = {}) {
     headers,
     ...opts,
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text || `Server error (${res.status})` };
+    }
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }

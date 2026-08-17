@@ -82,6 +82,23 @@ export function StarIcon({ size = 16, color = "currentColor", fill = "none" }) {
   );
 }
 
+export function FaceVerifyIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+export function ShieldIcon({ size = 16, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
 // ─── Animation Variants ──────────────────────────────────────────────────────
 
 const SUGGESTED_COLLEGES = [
@@ -880,20 +897,51 @@ export function FeatureShowcase() {
       )
     },
     {
+      title: "Biometric Face Verification",
+      icon: <FaceVerifyIcon size={16} color="var(--em)" />,
+      desc: "Client-side 128-dim facial embedding verification to eliminate duplicate accounts and identity fraud.",
+      mockup: (
+        <div style={{ padding: "16px", background: "rgba(16, 185, 129, 0.03)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: 12 }}>
+          <div className="row mb2" style={{ gap: 14, alignItems: "center" }}>
+            <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--em-bg)", border: "1px solid var(--em)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <FaceVerifyIcon size={22} color="var(--em)" />
+            </div>
+            <div>
+              <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Biometric Identity Verified</strong>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>128-dim Facial Descriptor Match · Zero-Knowledge Storage</span>
+            </div>
+            <span className="tag tg" style={{ marginLeft: "auto" }}>Verified ✓</span>
+          </div>
+          <div className="showcase-mock-tx-list">
+            <div className="showcase-mock-tx">
+              <span>Facial Embedding Verification</span>
+              <span className="text-g fw7">Euclidean Distance ≤ 0.6 (Unique User)</span>
+            </div>
+            <div className="showcase-mock-tx">
+              <span>Device Fingerprint Security</span>
+              <span className="text-g fw7">Trusted Visitor ID Verified</span>
+            </div>
+          </div>
+        </div>
+      )
+    },
+    {
       title: "Reputation & Safety Shield",
       icon: <SosIcon size={16} color="var(--red)" />,
       desc: "Verified student trust indexes, double review loops, and emergency SOS safeguard options.",
       mockup: (
         <div>
           <div className="row mb2" style={{ background: "rgba(16, 185, 129, 0.03)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: 12, padding: "12px 18px", gap: 14 }}>
-            <div className="av" style={{ background: "var(--em)", color: "var(--bg)", fontSize: 14, width: 44, height: 44 }}>98%</div>
+            <div className="av" style={{ background: "var(--em)", color: "var(--bg)", fontSize: 14, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>98%</div>
             <div>
               <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Trust & Safety Verification</strong>
               <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Highly Rated Member · 12 successful reviews</span>
             </div>
           </div>
           <div className="row mb2" style={{ background: "rgba(239, 68, 68, 0.03)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: 12, padding: "12px 18px", gap: 14 }}>
-            <div className="av" style={{ background: "var(--red)", color: "#fff", fontSize: 14, width: 44, height: 44 }}>🆘</div>
+            <div className="av" style={{ background: "var(--red)", color: "#fff", fontSize: 14, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <SosIcon size={20} color="#fff" />
+            </div>
             <div>
               <strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Safety Shield Active</strong>
               <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Emergency SOS triggers notification broadcast instantly.</span>
@@ -1045,7 +1093,7 @@ export function EarnedSpentGauge({ user }) {
 // ─── LANDING ─────────────────────────────────────────────────────────────────
 function Landing({ nav }) {
   const howSteps = [
-    { n: 1, t: "Create your account", d: "Sign up with your email, set up your profile, and receive 2 starter credits." },
+    { n: 1, t: "Biometric face verification", d: "Scan your face to prevent duplicate accounts and secure your identity, receiving 10 starter credits." },
     { n: 2, t: "List your expertise", d: "Post the skills you can offer — teaching, coding, design, music, or anything else." },
     { n: 3, t: "Book and exchange", d: "Find a skill you need, book a session, and complete it. Credits transfer on-chain." },
     { n: 4, t: "Earn AICTE points", d: "Submit verified activities for admin approval and earn bonus credits and recognition." },
@@ -1057,13 +1105,13 @@ function Landing({ nav }) {
         <motion.div className="hero-content" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}>
           <motion.div className="hero-eyebrow" {...fadeUp(0.1)}>
             <span style={{ width: 6, height: 6, background: "#00c27a", borderRadius: "50%" }} />
-            P2P Skill Exchange · Polygon Amoy Verified · Real-Time Time Economy
+            P2P Skill Exchange · Biometric Face ID · Polygon Amoy Verified
           </motion.div>
           <motion.h1 className="hero-title" {...fadeUp(0.2)}>
             Where your time<br />becomes <span>currency</span>
           </motion.h1>
           <motion.p className="hero-sub" {...fadeUp(0.3)}>
-            TimeBank is a decentralized peer-to-peer network where 1 hour of your skills matches exactly 1 time credit. Share your expertise, learn something new, and track verifications on the ledger.
+            TimeBank is a decentralized peer-to-peer network where 1 hour of your skills matches exactly 1 time credit. Protected by biometric face verification, share your expertise and track verifications on the ledger.
           </motion.p>
           <motion.div className="hero-btns" {...fadeUp(0.4)}>
             <button className="btn-hp btn-hp-p" onClick={() => nav("auth")}>Start exchanging</button>
@@ -1073,7 +1121,7 @@ function Landing({ nav }) {
           </motion.div>
           
           <motion.div className="hero-stats" {...fadeUp(0.5)}>
-            {[{ n: "1 hr", l: "= 1 credit always" }, { n: "Polygon", l: "Secure testnet logs" }, { n: "AICTE", l: "Integrated recognition" }, { n: "100% P2P", l: "Direct messaging" }].map((s) => (
+            {[{ n: "1 hr", l: "= 1 credit always" }, { n: "Face ID", l: "Anti-fraud biometrics" }, { n: "Polygon", l: "Secure testnet logs" }, { n: "AICTE", l: "Integrated recognition" }].map((s) => (
               <div key={s.l}><div className="hstat-num">{s.n}</div><div className="hstat-lbl">{s.l}</div></div>
             ))}
           </motion.div>
