@@ -93,6 +93,13 @@ const userSchema = new Schema({
   reviewedBy:         { type: Schema.Types.ObjectId, ref: "User", default: null },
   reviewedAt:         { type: Date, default: null },
   rejectionReason:    { type: String, default: "" },
+
+  // ── Alumni & Graduate Transition ──
+  isAlumni:           { type: Boolean, default: false },
+  graduatedAt:        { type: Date, default: null },
+  graduationYear:     { type: Number, default: null },
+  almaMater:          { type: String, default: "" },
+  collegeEmail:       { type: String, default: "" },
 }, { timestamps: true });
 
 // ─── Skill ───────────────────────────────────────────────────────────────────

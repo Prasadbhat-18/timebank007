@@ -1068,6 +1068,71 @@ r.post("/auth/welcome-shown/:userId", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── GRADUATE / ALUMNI TRANSITION ENDPOINT ────────────────────────────────────
+r.post("/user/graduate", requireAuth, async (req, res) => {
+  try {
+    const { graduationYear, personalEmail, otp, bio } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Handle personal email transition if provided and different
+    if (personalEmail && personalEmail.toLowerCase().trim() !== user.email) {
+      const cleanPersonal = personalEmail.toLowerCase().trim();
+      const existingUser = await User.findOne({ email: cleanPersonal, _id: { $ne: user._id } });
+      if (existingUser) {
+        return res.status(409).json({ error: "This personal email address is already linked to another TimeBank account." });
+      }
+
+      if (otp) {
+        const validOtp = await Otp.findOne({
+          email: cleanPersonal,
+          code: String(otp).trim(),
+          createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
+        }).sort({ createdAt: -1 });
+
+        if (!validOtp) {
+          return res.status(400).json({ error: "Invalid or expired verification code for personal email." });
+        }
+        validOtp.used = true;
+        await validOtp.save();
+      }
+
+      user.collegeEmail = user.email; // preserve historical college email
+      user.email = cleanPersonal; // update primary login email
+    }
+
+    // Preserve alma mater and convert role
+    if (user.college && !user.almaMater) {
+      user.almaMater = user.college;
+    }
+    user.isAlumni = true;
+    user.graduatedAt = new Date();
+    user.graduationYear = parseInt(graduationYear, 10) || new Date().getFullYear();
+    user.role = "general_user";
+    if (bio) user.bio = bio;
+
+    // Add Alumni Badge
+    if (!user.badges) user.badges = [];
+    if (!user.badges.includes("🎓 Verified Alumni")) {
+      user.badges.push("🎓 Verified Alumni");
+    }
+
+    await user.save();
+
+    const token = generateToken(user);
+    res.json({
+      success: true,
+      message: `🎉 Congratulations on graduating! Your account has been upgraded to a Verified Alumni General Account from ${user.almaMater || user.college}.`,
+      user,
+      token,
+    });
+  } catch (e) {
+    console.error("Graduation transition error:", e);
+    res.status(500).json({ error: e.message || "Failed to process graduation transition." });
+  }
+});
+
+
 // ─── USERS ───────────────────────────────────────────────────────────────────
 r.get("/users", async (_req, res) => {
   try { res.json(await User.find()); }

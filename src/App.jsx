@@ -2883,11 +2883,15 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
   }, [user]);
 
   const editProfile = () => {
-    setModal(<EditProfileModal user={user} refreshUser={refreshUser} notify={notify} />);
+    setModal(<EditProfileModal user={user} refreshUser={refreshUser} close={() => setModal(null)} notify={notify} />);
   };
 
   const addContact = () => {
-    setModal(<AddContactModal user={user} notify={notify} setEmergency={setEmergency} />);
+    setModal(<AddContactModal user={user} notify={notify} close={() => setModal(null)} setEmergency={setEmergency} />);
+  };
+
+  const graduateAccount = () => {
+    setModal(<GraduateTransitionModal user={user} refreshUser={refreshUser} close={() => setModal(null)} notify={notify} />);
   };
 
   const removeContact = async (id) => {
@@ -2903,13 +2907,22 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
       <div className="ph"><h1>Profile</h1><p>Manage your account</p></div>
       <motion.div className="g2" {...fadeUp(0.1)}>
         <div className="card">
+          {user.isAlumni && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(139, 92, 246, 0.15)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700, color: "var(--purple)", marginBottom: 12 }}>
+              🎓 Verified Alumni · {user.almaMater || user.college} {user.graduationYear ? `(Class of ${user.graduationYear})` : ""}
+            </div>
+          )}
           <div className="row mb2">
             <div className="av" style={{ width: 54, height: 54, fontSize: 18 }}>{user.avatar}</div>
             <div>
               <div style={{ fontWeight: 700, fontSize: 16 }}>{user.name}</div>
               <div className="text-s" style={{ fontSize: 13 }}>{user.email}</div>
+              {user.collegeEmail && user.collegeEmail !== user.email && (
+                <div className="text-m" style={{ fontSize: 11, color: "var(--text-muted)" }}>College Mail: {user.collegeEmail}</div>
+              )}
             </div>
           </div>
+          {user.college && <div className="text-s mb1" style={{ fontSize: 13, color: "var(--em)", fontWeight: 600 }}>🏛️ {user.college}</div>}
           {user.education && <div className="text-s mb1" style={{ fontSize: 13, color: "var(--purple)" }}>🎓 {user.education}</div>}
           <div className="text-s" style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12 }}>{user.bio || "No bio yet."}</div>
           {user.interests && user.interests.length > 0 && (
@@ -2919,8 +2932,11 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
               ))}
             </div>
           )}
-          <div className="row" style={{ gap: 6 }}>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="btn btn-o btn-sm" onClick={editProfile}>Edit profile</button>
+            {user.role === "student" && (
+              <button className="btn btn-g btn-sm" onClick={graduateAccount}>🎓 Graduate Account</button>
+            )}
             <button className="btn btn-o btn-sm" onClick={doLogout}>Sign out</button>
           </div>
         </div>
@@ -2938,6 +2954,25 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
           )}
         </div>
       </motion.div>
+
+      {/* Graduation Transition Action Banner for Students */}
+      {user.role === "student" && (
+        <motion.div className="card mt2" {...fadeUp(0.12)} style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(139,92,246,0.08) 100%)", border: "1px solid rgba(16,185,129,0.3)" }}>
+          <div className="btwn" style={{ flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>🎓</span> Post-Graduation Account Transition
+              </div>
+              <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                Graduating? Convert to a General Alumni Account while keeping all your Time Credits, reviews, and AICTE credentials.
+              </div>
+            </div>
+            <button className="btn btn-g btn-sm" onClick={graduateAccount} style={{ whiteSpace: "nowrap", padding: "8px 16px", fontWeight: 700 }}>
+              🎓 Transition to Alumni
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       <motion.div className="g3 mt2" {...fadeUp(0.15)}>
         {[
@@ -3532,6 +3567,215 @@ export function AddContactModal({ user, close, notify, setEmergency }) {
         <input className="fi" placeholder="Parent, Friend, etc." value={relation} onChange={(e) => setRelation(e.target.value)} />
       </div>
       <button className="btn btn-p" onClick={handleAdd}>Add contact</button>
+    </div>
+  );
+}
+
+// ─── GRADUATION / ALUMNI TRANSITION MODAL ────────────────────────────────────
+export function GraduateTransitionModal({ user, refreshUser, close, notify }) {
+  const [gradYear, setGradYear] = useState(new Date().getFullYear());
+  const [personalEmail, setPersonalEmail] = useState("");
+  const [bio, setBio] = useState(user.bio || "");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  const handleSendOtp = async () => {
+    if (!personalEmail || !personalEmail.includes("@")) {
+      notify("Please enter a valid personal email", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.sendOtp(personalEmail, "verify_email");
+      setOtpSent(true);
+      setCountdown(60);
+      notify(`Verification code dispatched to ${personalEmail}`);
+    } catch (e) {
+      notify(e.message || "Failed to dispatch verification code", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length < 6) {
+      notify("Enter 6-digit verification code", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.verifyOtp(personalEmail, otp);
+      setEmailVerified(true);
+      notify("Personal email verified successfully! ✓");
+    } catch (e) {
+      notify(e.message || "Verification code failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGraduate = async () => {
+    if (personalEmail && personalEmail !== user.email && !emailVerified) {
+      notify("Please verify your personal email OTP first", "error");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await api.graduateStudent({
+        graduationYear: gradYear,
+        personalEmail: personalEmail || undefined,
+        otp: otp || undefined,
+        bio,
+      });
+      if (res.token) {
+        localStorage.setItem("tb_token", res.token);
+      }
+      notify("🎉 Congratulations on graduating! Your account is now a Verified Alumni Account!");
+      if (refreshUser) await refreshUser();
+      close();
+    } catch (e) {
+      notify(e.message || "Failed to complete graduation transition", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(16, 185, 129, 0.15)", color: "var(--em)", border: "1px solid rgba(16, 185, 129, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", fontSize: 24 }}>
+          🎓
+        </div>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: "#fff" }}>Graduate & Transition Account</h2>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>
+          Upgrade from Student to a Verified Alumni General Account
+        </p>
+      </div>
+
+      <div style={{ background: "rgba(139, 92, 246, 0.08)", border: "1px solid rgba(139, 92, 246, 0.25)", borderRadius: 12, padding: "12px 14px", marginBottom: "1.25rem" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--purple)", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          ✨ Retained Account Privileges:
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "#e2e8f0", lineHeight: 1.6 }}>
+          <li><b>Keep 100% of your Wallet Credits</b> ({user.credits} Time Credits).</li>
+          <li><b>Preserve AICTE Points & Verified Badges</b> as permanent academic credentials.</li>
+          <li><b>Unlock Global Open Marketplace</b> beyond university limits.</li>
+          <li>Official <b>🎓 Verified Alumni ({user.college || "University"})</b> badge.</li>
+        </ul>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Graduation Year</label>
+          <select className="fi" value={gradYear} onChange={(e) => setGradYear(e.target.value)} style={{ height: 42 }}>
+            {[2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
+              <option key={y} value={y}>{y} {y <= new Date().getFullYear() ? "(Graduated)" : "(Upcoming)"}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Alma Mater</label>
+          <input className="fi" value={user.college || "Your College"} disabled style={{ height: 42, background: "rgba(255,255,255,0.04)", opacity: 0.8 }} />
+        </div>
+      </div>
+
+      {/* Personal email migration */}
+      <div className="field" style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <label style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+            Personal Email Migration (Optional)
+          </label>
+          {emailVerified && <span style={{ fontSize: 11, color: "var(--em)", fontWeight: 700 }}>✓ Verified</span>}
+        </div>
+        <input
+          className="fi"
+          type="email"
+          value={personalEmail}
+          onChange={(e) => { setPersonalEmail(e.target.value); setEmailVerified(false); }}
+          placeholder="your.personal@gmail.com (if college mail deactivates)"
+          style={{ height: 42 }}
+        />
+
+        {personalEmail && personalEmail !== user.email && !emailVerified && !otpSent && (
+          <div style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={handleSendOtp}
+              disabled={loading}
+              className="btn btn-p"
+              style={{ width: "100%", height: 36, fontSize: 12, fontWeight: 700 }}
+            >
+              {loading ? "Sending..." : "⚡ Send OTP to Personal Email"}
+            </button>
+          </div>
+        )}
+
+        {personalEmail && !emailVerified && otpSent && (
+          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+            <input
+              className="fi"
+              placeholder="6-digit OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              maxLength={6}
+              style={{ width: 130, height: 38, textAlign: "center", letterSpacing: 4, fontWeight: 700 }}
+            />
+            <button
+              type="button"
+              onClick={handleVerifyOtp}
+              disabled={loading || otp.length < 6}
+              className="btn btn-p"
+              style={{ height: 38, padding: "0 14px", fontSize: 12, fontWeight: 700 }}
+            >
+              Verify OTP ✓
+            </button>
+            <button
+              type="button"
+              onClick={handleSendOtp}
+              disabled={countdown > 0}
+              style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 11, cursor: countdown > 0 ? "default" : "pointer" }}
+            >
+              {countdown > 0 ? `${countdown}s` : "Resend"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="field" style={{ marginBottom: "1.25rem" }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Updated Headline / Bio</label>
+        <input
+          className="fi"
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          placeholder="e.g. Software Engineer | NITK Alumni | React & AI Specialist"
+          style={{ height: 42 }}
+        />
+      </div>
+
+      <div className="row" style={{ gap: 8 }}>
+        <button
+          className="btn btn-p"
+          onClick={handleGraduate}
+          disabled={loading || (personalEmail && personalEmail !== user.email && !emailVerified)}
+          style={{ flex: 1, height: 44, justifyContent: "center", fontWeight: 700, fontSize: 14 }}
+        >
+          {loading ? "Processing Transition..." : "🎓 Complete Graduation Transition"}
+        </button>
+        <button className="btn btn-o" onClick={close} style={{ height: 44 }}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

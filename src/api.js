@@ -77,6 +77,9 @@ export const fetchLevelProgress = (id) => req(`/users/${id}/level-progress`);
 export const uploadAvatar = (id, avatarUrl) =>
   req(`/users/${id}/upload-avatar`, { method: "POST", body: JSON.stringify({ avatarUrl }) });
 
+export const graduateStudent = (data) =>
+  req("/user/graduate", { method: "POST", body: JSON.stringify(data) });
+
 export const endorseSkill = (userId, skill, endorserId) =>
   req(`/users/${userId}/endorse`, { method: "POST", body: JSON.stringify({ skill, endorserId }) });
 
