@@ -1134,12 +1134,32 @@ r.post("/user/graduate", requireAuth, async (req, res) => {
 });
 
 // ─── 1-CLICK INSTANT TESTNET FAUCET / GAS STATION ───────────────────────────
-const userLastDripMap = new Map();
+const userDripHistory = new Map(); // userId -> { lastDripTime, countToday, resetAt }
+const DAILY_DRIP_LIMIT = 5; // 5 claims per day (0.25 POL total)
+const COOLDOWN_MS = 90 * 1000; // 90s cooldown between claims
 
-r.get("/faucet/status", async (_req, res) => {
+r.get("/faucet/status", async (req, res) => {
   try {
     const status = await relayer.getRelayerStatus();
-    res.json(status);
+    let userClaimsLeft = DAILY_DRIP_LIMIT;
+
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      try {
+        const decoded = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
+        const history = userDripHistory.get(decoded.id);
+        if (history && Date.now() < history.resetAt) {
+          userClaimsLeft = Math.max(0, DAILY_DRIP_LIMIT - history.countToday);
+        }
+      } catch {}
+    }
+
+    res.json({
+      ...status,
+      dailyLimit: DAILY_DRIP_LIMIT,
+      amountPerClaim: "0.05 POL",
+      claimsRemainingToday: userClaimsLeft,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1156,15 +1176,36 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "No wallet address specified for gas drip." });
     }
 
-    // Rate limiting: 1 drip per 90 seconds per user
-    const lastDrip = userLastDripMap.get(userId);
-    if (lastDrip && Date.now() - lastDrip < 90 * 1000) {
-      const waitSecs = Math.ceil((90 * 1000 - (Date.now() - lastDrip)) / 1000);
+    const now = Date.now();
+    let history = userDripHistory.get(userId);
+
+    // Reset daily counter after 24 hours
+    if (!history || now >= history.resetAt) {
+      history = { lastDripTime: 0, countToday: 0, resetAt: now + 24 * 60 * 60 * 1000 };
+      userDripHistory.set(userId, history);
+    }
+
+    // 1. Check daily quota limit
+    if (history.countToday >= DAILY_DRIP_LIMIT) {
+      const hoursLeft = Math.ceil((history.resetAt - now) / (60 * 60 * 1000));
+      return res.status(429).json({
+        error: `Daily testnet gas limit reached (Max ${DAILY_DRIP_LIMIT} claims / 0.25 POL per day). Resets in ~${hoursLeft}h.`,
+        dailyLimitReached: true,
+      });
+    }
+
+    // 2. Check 90s cooldown
+    if (now - history.lastDripTime < COOLDOWN_MS) {
+      const waitSecs = Math.ceil((COOLDOWN_MS - (now - history.lastDripTime)) / 1000);
       return res.status(429).json({ error: `Please wait ${waitSecs}s before claiming gas again.` });
     }
 
     const dripRes = await relayer.dripGas(targetAddress, "0.05");
-    userLastDripMap.set(userId, Date.now());
+    
+    // Update history
+    history.lastDripTime = now;
+    history.countToday += 1;
+    userDripHistory.set(userId, history);
 
     // Broadcast real-time event for UI sync
     broadcastRealtimeEvent("faucet_drip", {
@@ -1172,9 +1213,14 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       address: targetAddress,
       txHash: dripRes.txHash,
       amount: "0.05",
+      claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
     });
 
-    res.json(dripRes);
+    res.json({
+      ...dripRes,
+      claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
+      dailyLimit: DAILY_DRIP_LIMIT,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

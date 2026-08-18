@@ -2794,18 +2794,21 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
             <div>
               <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
                 <span>⛽ 1-Click Instant Testnet Gas Dispenser</span>
+                <span className="tag tp" style={{ fontSize: 11, padding: "2px 8px" }}>
+                  {relayerStatus?.claimsRemainingToday !== undefined ? `${relayerStatus.claimsRemainingToday}/5 claims left today` : "5 claims / day (0.25 POL)"}
+                </span>
               </div>
               <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 4 }}>
-                Want testnet POL for direct wallet signing or custom contracts? Dispense 0.05 POL instantly with zero external faucets.
+                Dispense 0.05 POL testnet gas directly to your wallet in 1 click (5 claims / 0.25 POL per day).
               </div>
             </div>
             <button
               className="btn btn-p btn-sm"
               onClick={handleClaimGas}
-              disabled={claimingGas || gasCountdown > 0}
+              disabled={claimingGas || gasCountdown > 0 || relayerStatus?.claimsRemainingToday === 0}
               style={{ padding: "8px 16px", fontWeight: 700, fontSize: 13, height: 38, minWidth: 180, justifyContent: "center" }}
             >
-              {claimingGas ? "Dispensing 0.05 POL..." : gasCountdown > 0 ? `⏳ Cooldown (${gasCountdown}s)` : "⛽ Claim 0.05 POL Gas"}
+              {claimingGas ? "Dispensing 0.05 POL..." : gasCountdown > 0 ? `⏳ Cooldown (${gasCountdown}s)` : relayerStatus?.claimsRemainingToday === 0 ? "🚫 Daily Limit Reached" : "⛽ Claim 0.05 POL Gas"}
             </button>
           </div>
         </motion.div>
