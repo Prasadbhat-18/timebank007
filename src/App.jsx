@@ -1146,24 +1146,25 @@ export function FeatureShowcase() {
 
 // ─── DASHBOARD REAL-TIME CREDIT TIMELINE CHART (SVG BASED) ───────────────────
 export function CreditTimelineChart({ txs, userId }) {
-  if (!txs || txs.length === 0) {
-    return <div className="text-m" style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>No transaction history to plot.</div>;
+  // Filter strictly to Time Credits (excluding POL gas claims)
+  const creditTxs = (txs || []).filter((t) => t.type !== "gas_faucet_claim");
+
+  if (!creditTxs || creditTxs.length === 0) {
+    return <div className="text-m" style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>No credit transactions to plot.</div>;
   }
 
   // Sort transactions chronologically
-  const sorted = [...txs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  let bal = 2.0;
+  const sorted = [...creditTxs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  let bal = 0;
   
   // Starting point
-  const data = [{
-    time: "Start",
-    balance: bal,
-    date: sorted.length > 0 ? new Date(sorted[0].createdAt).toLocaleDateString() : ""
-  }];
+  const data = [];
 
   sorted.forEach((tx) => {
     const inc = tx.toId === userId;
-    if (inc) {
+    if (tx.type === "initial_credits") {
+      bal = tx.amount || 10;
+    } else if (inc) {
       bal += tx.amount;
     } else {
       bal = Math.max(0, bal - tx.amount);
@@ -1173,9 +1174,14 @@ export function CreditTimelineChart({ txs, userId }) {
       time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       date: d.toLocaleDateString(),
       balance: parseFloat(bal.toFixed(1)),
-      type: tx.type
+      type: tx.type,
+      desc: tx.desc,
     });
   });
+
+  if (data.length === 1) {
+    data.unshift({ ...data[0], time: "Start", balance: data[0].balance });
+  }
 
   return (
     <div className="chart-container" style={{ width: "100%", height: 200, paddingRight: 20, paddingTop: 10 }}>
@@ -1194,7 +1200,7 @@ export function CreditTimelineChart({ txs, userId }) {
             contentStyle={{ backgroundColor: "var(--bg)", border: "1px solid var(--em-border)", borderRadius: 8, fontSize: 12 }} 
             itemStyle={{ color: "var(--em)", fontWeight: "bold" }}
             labelStyle={{ color: "rgba(255,255,255,0.7)", marginBottom: 4 }}
-            formatter={(value) => [`${value} hrs`, "Balance"]}
+            formatter={(value) => [`${value} hrs`, "Credit Balance"]}
           />
           <Line type="monotone" dataKey="balance" stroke="var(--em)" strokeWidth={2.5} dot={{ r: 3, fill: "var(--em)", strokeWidth: 0 }} activeDot={{ r: 6, fill: "#fff", stroke: "var(--em)", strokeWidth: 2 }} />
         </LineChart>
@@ -3799,41 +3805,94 @@ export function ProviderProfileModal({ userId, notify, close, isAdminView }) {
 // ─── REVIEW MODAL ────────────────────────────────────────────────────────────
 export function ReviewModal({ booking, refreshUser, notify, close }) {
   const [rating, setRating] = useState(5);
+  const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = async () => {
-    try {
-      await api.submitReview({ bookingId: booking._id, rating, comment });
-      notify("Review submitted successfully!");
-      if (refreshUser) refreshUser();
-      close();
-    } catch (e) { notify(e.message, "error"); }
+  const starLabels = {
+    1: "Poor (1/5) — Needs significant improvement",
+    2: "Fair (2/5) — Below expectations",
+    3: "Good (3/5) — Satisfactory service",
+    4: "Very Good (4/5) — Great experience!",
+    5: "Excellent (5/5) — Highly recommended! 🌟",
   };
 
+  const submit = async () => {
+    if (!rating || rating < 1) {
+      notify("Please select a star rating", "warning");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.submitReview({ bookingId: booking._id, rating, comment });
+      notify("Review submitted successfully! ⭐");
+      if (refreshUser) refreshUser();
+      close();
+    } catch (e) {
+      notify(e.message, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const currentVal = hoverRating || rating;
+
   return (
-    <div>
-      <div className="mo-t">Leave a Review</div>
-      <p className="text-s mb2">Rate your experience with this service provider.</p>
+    <div style={{ maxWidth: 440, width: "100%" }}>
+      <div className="mo-t" style={{ fontSize: 18, fontWeight: 800 }}>⭐ Leave a Review</div>
+      <p className="text-s mb2" style={{ color: "var(--text-secondary)" }}>Rate your skill exchange experience and help the community maintain high trust.</p>
       
-      <div className="field">
-        <label>Rating</label>
-        <div className="row" style={{ gap: 8 }}>
-          {[1, 2, 3, 4, 5].map(r => (
-            <button key={r} className="btn" style={{ background: r <= rating ? "var(--yellow)" : "var(--bg)", color: r <= rating ? "#000" : "var(--text)" }} onClick={() => setRating(r)}>
-              {r} ⭐
+      <div className="field" style={{ marginBottom: "1.25rem" }}>
+        <label style={{ display: "block", fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Rating</label>
+        
+        {/* Interactive 5-Star Row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              type="button"
+              onMouseEnter={() => setHoverRating(star)}
+              onMouseLeave={() => setHoverRating(0)}
+              onClick={() => setRating(star)}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: 32,
+                cursor: "pointer",
+                padding: "2px 4px",
+                color: star <= currentVal ? "#f59e0b" : "rgba(255,255,255,0.2)",
+                transform: star <= currentVal ? "scale(1.15)" : "scale(1)",
+                transition: "all 0.15s ease",
+              }}
+              title={`${star} Star${star > 1 ? "s" : ""}`}
+            >
+              ★
             </button>
           ))}
         </div>
+        
+        <div style={{ fontSize: 12.5, color: "#f59e0b", fontWeight: 600, marginTop: 6, minHeight: 18 }}>
+          {starLabels[currentVal] || ""}
+        </div>
       </div>
       
-      <div className="field">
-        <label>Comment (optional)</label>
-        <textarea className="fi" rows={3} value={comment} onChange={e => setComment(e.target.value)} placeholder="How was the service?" style={{ resize: "vertical" }} />
+      <div className="field" style={{ marginBottom: "1.25rem" }}>
+        <label style={{ display: "block", fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Feedback / Comments (Optional)</label>
+        <textarea
+          className="fi"
+          rows={3}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Share your experience (e.g. communication, skill quality, punctuality)..."
+          style={{ resize: "vertical", width: "100%" }}
+        />
       </div>
 
-      <div className="row mt2" style={{ gap: 8 }}>
-        <button className="btn btn-p" onClick={submit} style={{ flex: 1 }}>Submit Review</button>
-        <button className="btn btn-o" onClick={close}>Cancel</button>
+      <div className="row mt2" style={{ gap: 10 }}>
+        <button className="btn btn-p" onClick={submit} disabled={submitting} style={{ flex: 1, justifyContent: "center" }}>
+          {submitting ? "Submitting..." : "Submit Review"}
+        </button>
+        <button className="btn btn-o" onClick={close} disabled={submitting}>Cancel</button>
       </div>
     </div>
   );
