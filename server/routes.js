@@ -303,6 +303,71 @@ r.post("/colleges", requireAuth, requireRole("super_admin", "websiteAdmin"), asy
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── STARTER CREDITS BLOCKCHAIN LEDGER RECORDING HELPER ──────────────────────
+async function ensureInitialCreditsRecorded(user) {
+  try {
+    if (!user || user.role === "websiteAdmin" || user.role === "super_admin") return;
+    
+    // Check if initial credits transaction already exists
+    const existingTx = await Transaction.findOne({
+      toId: user._id.toString(),
+      type: "initial_credits",
+    });
+
+    if (existingTx && existingTx.txHash) {
+      const existingBc = await Blockchain.findOne({ txHash: existingTx.txHash });
+      if (existingBc) return;
+    }
+
+    let txHash = existingTx?.txHash;
+    let blockNumber = existingTx?.blockNumber;
+
+    if (!txHash) {
+      try {
+        const relayRes = await relayer.relayCreditTransfer(
+          user.wallet || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          10,
+          { type: "initial_credits", userId: user._id }
+        );
+        txHash = relayRes.txHash;
+        blockNumber = relayRes.blockNumber;
+      } catch (err) {
+        console.warn("[Initial Credits] Relayer fallback:", err.message);
+        const mock = generateMockTx();
+        txHash = mock.txHash;
+        blockNumber = mock.blockNumber;
+      }
+    }
+
+    if (!existingTx) {
+      await Transaction.create({
+        fromId: "SYSTEM",
+        toId: user._id.toString(),
+        bookingId: null,
+        amount: 10,
+        type: "initial_credits",
+        desc: "Welcome bonus — 10 starter credits",
+        txHash,
+        blockNumber,
+      });
+    }
+
+    const bcEntry = await Blockchain.create({
+      block: blockNumber || 10000001,
+      txHash,
+      from: "SYSTEM_TIMEBANK_TREASURY",
+      to: user.wallet || user._id.toString(),
+      amount: 10,
+      type: "MINT",
+    });
+
+    broadcastRealtimeEvent("blockchain_ledger_entry", bcEntry);
+    broadcastRealtimeEvent("wallet_update", { userId: user._id });
+  } catch (err) {
+    console.warn("Failed to ensure initial credits recorded:", err.message);
+  }
+}
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 r.post("/auth/login", async (req, res) => {
   try {
@@ -364,6 +429,9 @@ r.post("/auth/login", async (req, res) => {
     // Update last active
     user.lastActiveAt = new Date();
     await user.save();
+
+    // Ensure 10 starter credits are recorded on the blockchain ledger
+    ensureInitialCreditsRecorded(user).catch(() => {});
 
     const token = generateToken(user);
     res.json({ token, user, faceMatch, crossAccountFlag, newDevice });
@@ -510,6 +578,7 @@ r.post("/auth/verify-otp", async (req, res) => {
     });
 
     const token = generateToken(newUser);
+    await ensureInitialCreditsRecorded(newUser);
     return res.json({
       success: true,
       isRegistered: true,
@@ -566,6 +635,8 @@ r.get("/auth/magic-login/:token", async (req, res) => {
       user.lastActiveAt = new Date();
       await user.save();
     }
+
+    await ensureInitialCreditsRecorded(user);
 
     const jwtToken = generateToken(user);
     res.json({
@@ -734,18 +805,7 @@ r.post("/auth/register/student", async (req, res) => {
       });
     }
 
-    const { txHash, blockNumber } = generateMockTx();
-    await Transaction.create({
-      fromId: "SYSTEM", toId: user._id.toString(), bookingId: null,
-      amount: 10, type: "initial_credits", desc: "Welcome bonus — 10 starter credits",
-      txHash, blockNumber,
-    });
-
-    await Blockchain.create({
-      block: blockNumber, txHash,
-      from: "SYSTEM", to: wallet || user._id.toString(),
-      amount: 10, type: "MINT",
-    });
+    await ensureInitialCreditsRecorded(user);
 
     await pushNotification(user._id, {
       type: "welcome",
@@ -898,18 +958,7 @@ r.post("/auth/register/general", async (req, res) => {
       });
     }
 
-    const { txHash, blockNumber } = generateMockTx();
-    await Transaction.create({
-      fromId: "SYSTEM", toId: user._id.toString(), bookingId: null,
-      amount: 10, type: "initial_credits", desc: "Welcome bonus — 10 starter credits",
-      txHash, blockNumber,
-    });
-
-    await Blockchain.create({
-      block: blockNumber, txHash,
-      from: "SYSTEM", to: wallet || user._id.toString(),
-      amount: 10, type: "MINT",
-    });
+    await ensureInitialCreditsRecorded(user);
 
     await pushNotification(user._id, {
       type: "welcome",
