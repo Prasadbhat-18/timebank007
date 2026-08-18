@@ -27,6 +27,7 @@ const userSchema = new Schema({
   collegeIdNumber: { type: String, default: "" },
   wallet:      { type: String, default: "" },
   credits:     { type: Number, default: 10 },
+  polBalance:  { type: Number, default: 0 },
   earned:      { type: Number, default: 0 },
   spent:       { type: Number, default: 0 },
   aictePoints: { type: Number, default: 0 },

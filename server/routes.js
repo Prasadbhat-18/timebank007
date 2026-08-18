@@ -1256,9 +1256,26 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
     history.countToday += 1;
     userDripHistory.set(userId, history);
 
+    // Update user POL balance
+    user.polBalance = Number(((user.polBalance || 0) + 0.05).toFixed(4));
+    await user.save();
+
+    // Record on transaction log
+    await Transaction.create({
+      fromId: "SYSTEM",
+      toId: user._id.toString(),
+      bookingId: null,
+      amount: 0.05,
+      type: "gas_faucet_claim",
+      desc: "1-Click Gas Claim — 0.05 POL testnet gas",
+      txHash: dripRes.txHash,
+      blockNumber: dripRes.blockNumber,
+    });
+
     // Record on blockchain ledger
+    let bcEntry = null;
     if (dripRes.txHash && dripRes.blockNumber) {
-      const bcEntry = await Blockchain.create({
+      bcEntry = await Blockchain.create({
         block: dripRes.blockNumber,
         txHash: dripRes.txHash,
         from: "FAUCET_TREASURY",
@@ -1275,13 +1292,19 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       address: targetAddress,
       txHash: dripRes.txHash,
       amount: "0.05",
+      polBalance: user.polBalance,
       claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
+      entry: bcEntry,
     });
+
+    broadcastRealtimeEvent("wallet_update", { userId, polBalance: user.polBalance });
 
     res.json({
       ...dripRes,
+      polBalance: user.polBalance,
       claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
       dailyLimit: DAILY_DRIP_LIMIT,
+      entry: bcEntry,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

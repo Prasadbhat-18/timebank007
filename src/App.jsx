@@ -2633,27 +2633,33 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
 }
 
 // ─── WALLET ──────────────────────────────────────────────────────────────────
-function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
+function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser }) {
   const [txs, setTxs] = useState([]);
   const [bcRecords, setBcRecords] = useState([]);
   const [relayerStatus, setRelayerStatus] = useState(null);
   const [claimingGas, setClaimingGas] = useState(false);
   const [refreshingBal, setRefreshingBal] = useState(false);
   const [gasCountdown, setGasCountdown] = useState(0);
-  const [livePolBalance, setLivePolBalance] = useState(wallet?.balance ? parseFloat(wallet.balance).toFixed(4) : "0.0000");
+  
+  const initialPol = Math.max(parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0)).toFixed(4);
+  const [livePolBalance, setLivePolBalance] = useState(initialPol);
 
   const syncOnChainBalance = useCallback(async () => {
     if (!wallet?.address) return;
     setRefreshingBal(true);
     try {
-      let bal = "0.0";
+      let onChainBal = "0.0";
       if (wallet.provider) {
-        bal = await chain.getBalance(wallet.provider, wallet.address);
+        onChainBal = await chain.getBalance(wallet.provider, wallet.address);
       } else {
         const tempProvider = new ethers.JsonRpcProvider("https://polygon-amoy-bor-rpc.publicnode.com", 80002);
-        bal = await chain.getBalance(tempProvider, wallet.address);
+        onChainBal = await chain.getBalance(tempProvider, wallet.address);
       }
-      const formatted = parseFloat(bal || 0).toFixed(4);
+      const onChainNum = parseFloat(onChainBal || 0);
+      const userNum = parseFloat(user?.polBalance || 0);
+      const currentLive = parseFloat(livePolBalance || 0);
+      const maxVal = Math.max(onChainNum, userNum, currentLive);
+      const formatted = maxVal.toFixed(4);
       setLivePolBalance(formatted);
       if (setWallet) {
         setWallet((prev) => prev ? ({ ...prev, balance: formatted }) : prev);
@@ -2663,13 +2669,14 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
     } finally {
       setRefreshingBal(false);
     }
-  }, [wallet, setWallet]);
+  }, [wallet, setWallet, user?.polBalance, livePolBalance]);
 
   useEffect(() => {
-    if (wallet?.balance !== undefined) {
-      setLivePolBalance(parseFloat(wallet.balance).toFixed(4));
+    if (user?.polBalance !== undefined || wallet?.balance !== undefined) {
+      const highest = Math.max(parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0));
+      setLivePolBalance((prev) => Math.max(parseFloat(prev || 0), highest).toFixed(4));
     }
-  }, [wallet?.balance]);
+  }, [user?.polBalance, wallet?.balance]);
 
   useEffect(() => {
     let timer;
@@ -2699,13 +2706,23 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
       });
 
       socket.on("faucet_drip", (data) => {
+        if (data?.entry) {
+          setBcRecords((prev) => [data.entry, ...prev.filter((x) => x._id !== data.entry._id)]);
+        }
+        if (data?.polBalance !== undefined) {
+          setLivePolBalance(parseFloat(data.polBalance).toFixed(4));
+          if (setWallet) {
+            setWallet((prev) => prev ? ({ ...prev, balance: parseFloat(data.polBalance).toFixed(4) }) : prev);
+          }
+        }
         loadData();
-        syncOnChainBalance();
       });
 
-      socket.on("wallet_update", () => {
+      socket.on("wallet_update", (data) => {
+        if (data?.polBalance !== undefined) {
+          setLivePolBalance(parseFloat(data.polBalance).toFixed(4));
+        }
         loadData();
-        syncOnChainBalance();
       });
     } catch (e) {
       console.warn("Wallet socket listener error:", e);
@@ -2714,6 +2731,11 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
     return () => {
       if (socket) socket.disconnect();
     };
+  }, [loadData, setWallet]);
+
+  useEffect(() => {
+    loadData();
+    syncOnChainBalance();
   }, [loadData, syncOnChainBalance]);
 
   // Handle Real-Time 1-Click Gas Claim
@@ -2727,19 +2749,36 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
       const res = await api.dripGas(wallet.address);
       setGasCountdown(90);
       
-      // Optimistic instant balance update
-      const newBal = (parseFloat(livePolBalance || 0) + 0.05).toFixed(4);
+      // Calculate updated balance
+      const currentVal = Math.max(parseFloat(livePolBalance || 0), parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0));
+      const newBal = (currentVal + 0.05).toFixed(4);
       setLivePolBalance(newBal);
       if (setWallet) {
         setWallet((prev) => prev ? ({ ...prev, balance: newBal }) : prev);
       }
 
+      // Prepend to Blockchain Ledger in UI immediately
+      if (res.entry) {
+        setBcRecords((prev) => [res.entry, ...prev.filter((x) => x._id !== res.entry._id)]);
+      }
+
+      // Prepend to Transaction log in UI immediately
+      const dripTx = {
+        _id: "drip_" + Date.now(),
+        fromId: "SYSTEM",
+        toId: user._id,
+        amount: 0.05,
+        type: "gas_faucet_claim",
+        desc: "1-Click Gas Claim — 0.05 POL testnet gas",
+        txHash: res.txHash,
+        blockNumber: res.blockNumber,
+        createdAt: new Date().toISOString(),
+      };
+      setTxs((prev) => [dripTx, ...prev]);
+
       notify(`⛽ +0.05 POL testnet gas dispatched! Tx: ${res.txHash.slice(0, 12)}...`);
       
-      // Background re-poll on-chain balance after 2s and 5s to confirm on-chain state
-      setTimeout(() => syncOnChainBalance(), 2000);
-      setTimeout(() => syncOnChainBalance(), 5000);
-
+      if (refreshUser) refreshUser();
       loadData();
     } catch (e) {
       notify(e.message || "Failed to claim testnet gas", "error");
