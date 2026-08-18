@@ -260,12 +260,13 @@ const emergencySchema = new Schema({
 
 // ─── Blockchain Record ───────────────────────────────────────────────────────
 const blockchainSchema = new Schema({
-  block:   { type: Number, required: true },
-  txHash:  { type: String, required: true },
-  from:    { type: String, required: true },
-  to:      { type: String, required: true },
-  amount:  { type: Number, required: true },
-  type:    { type: String, required: true }, // TRANSFER, MINT
+  block:        { type: Number, required: true },
+  txHash:       { type: String, required: true },
+  from:         { type: String, required: true },
+  to:           { type: String, required: true },
+  amount:       { type: Number, required: true },
+  type:         { type: String, required: true }, // TRANSFER, MINT, GAS_DRIP
+  isStateProof: { type: Boolean, default: false },
 }, { timestamps: true });
 
 // ─── Fraud Review ─────────────────────────────────────────────────────────────

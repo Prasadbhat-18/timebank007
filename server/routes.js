@@ -1195,7 +1195,7 @@ r.get("/faucet/status", async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       try {
-        const decoded = jwt.verify(authHeader.split(" ")[1], process.env.JWT_SECRET || "timebank_secret_key");
+        const decoded = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
         const user = await User.findById(decoded.id);
         if (user) {
           const now = Date.now();
@@ -1205,7 +1205,9 @@ r.get("/faucet/status", async (req, res) => {
             claimsRemaining = Math.max(0, DAILY_DRIP_LIMIT - claimsMade);
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[Faucet Status] JWT Decode warn:", err.message);
+      }
     }
 
     res.json({

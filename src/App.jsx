@@ -2965,7 +2965,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
               <span className="tag tg" style={{ fontSize: 10, padding: "2px 8px" }}>Live Feed</span>
             </div>
             <div className="text-s" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-              Real-time blocks minted and verified on Polygon Amoy testnet. Click any entry to inspect on Polygonscan.
+              Real-time blocks minted and anchored on Polygon Amoy testnet. Click any entry to inspect on Polygonscan.
             </div>
           </div>
           <button className="btn btn-o btn-sm" onClick={loadData} style={{ padding: "4px 10px", fontSize: 12 }}>
