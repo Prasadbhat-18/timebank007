@@ -1145,9 +1145,9 @@ export function FeatureShowcase() {
 }
 
 // ─── DASHBOARD REAL-TIME CREDIT TIMELINE CHART (SVG BASED) ───────────────────
-export function CreditTimelineChart({ txs, userId }) {
-  // Filter strictly to Time Credits (excluding POL gas claims)
-  const creditTxs = (txs || []).filter((t) => t.type !== "gas_faucet_claim");
+export function CreditTimelineChart({ txs, userId, currentCredits }) {
+  // Filter strictly to Time Credits (excluding POL gas claims and internal escrow releases)
+  const creditTxs = (txs || []).filter((t) => t.type !== "gas_faucet_claim" && t.type !== "escrow_release");
 
   if (!creditTxs || creditTxs.length === 0) {
     return <div className="text-m" style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: "2rem 0" }}>No credit transactions to plot.</div>;
@@ -1155,20 +1155,31 @@ export function CreditTimelineChart({ txs, userId }) {
 
   // Sort transactions chronologically
   const sorted = [...creditTxs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  let bal = 0;
+  let bal = 10;
   
   // Starting point
   const data = [];
 
   sorted.forEach((tx) => {
-    const inc = tx.toId === userId;
+    const isToUser = String(tx.toId) === String(userId);
+    const isFromUser = String(tx.fromId) === String(userId);
+
     if (tx.type === "initial_credits") {
       bal = tx.amount || 10;
-    } else if (inc) {
+    } else if (tx.type === "escrow_hold") {
+      if (isFromUser) bal = Math.max(0, bal - tx.amount);
+    } else if (tx.type === "escrow_refund") {
+      if (isToUser) bal += tx.amount;
+    } else if (tx.type === "service_completed") {
+      if (isToUser) bal += tx.amount;
+    } else if (tx.type === "aicte_reward" || tx.type === "referral_bonus") {
+      if (isToUser) bal += tx.amount;
+    } else if (isToUser) {
       bal += tx.amount;
-    } else {
+    } else if (isFromUser) {
       bal = Math.max(0, bal - tx.amount);
     }
+
     const d = new Date(tx.createdAt);
     data.push({
       time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1178,6 +1189,16 @@ export function CreditTimelineChart({ txs, userId }) {
       desc: tx.desc,
     });
   });
+
+  if (currentCredits !== undefined && currentCredits !== null) {
+    data.push({
+      time: "Now",
+      date: new Date().toLocaleDateString(),
+      balance: parseFloat(Number(currentCredits).toFixed(1)),
+      type: "current_balance",
+      desc: "Live Available Credits",
+    });
+  }
 
   if (data.length === 1) {
     data.unshift({ ...data[0], time: "Start", balance: data[0].balance });
@@ -2312,7 +2333,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
       <motion.div className="g2" {...fadeUp(0.12)}>
         <div className="card">
           <div className="card-t">Credit balance timeline</div>
-          <CreditTimelineChart txs={txs} userId={user._id} />
+          <CreditTimelineChart txs={txs} userId={user._id} currentCredits={user.credits} />
         </div>
         <div className="card">
           <div className="card-t">Time credits exchange stats</div>
@@ -2331,7 +2352,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
           {wallet ? (
             <>
               <div className="chash mt1" style={{ wordBreak: "break-all" }}>{wallet.address}</div>
-              <div className="btwn mt2"><span className="text-s" style={{ fontSize: 13 }}>POL balance</span><span className="text-g fw7">{parseFloat(wallet.balance).toFixed(4)} POL</span></div>
+              <div className="btwn mt2"><span className="text-s" style={{ fontSize: 13 }}>POL balance</span><span className="text-g fw7">{parseFloat(wallet.balance || 0).toFixed(4)} POL</span></div>
               <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: "inline-block", marginTop: 6 }}>View on Polygonscan ↗</a>
             </>
           ) : (
@@ -2348,12 +2369,12 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
               <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                 <div className="row">
                   <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : tx.type === "gas_faucet_claim" ? "ta" : "tg"}`}>
-                    {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : tx.type === "gas_faucet_claim" ? "Gas Station" : "Transfer"}
+                    {tx.type === "aicte_reward" ? "AICTE Reward" : tx.type === "initial_credits" ? "Joining Bonus" : tx.type === "gas_faucet_claim" ? "Gas Station" : inc ? "Received" : "Sent"}
                   </span>
-                  <span className="text-s">{tx.desc}</span>
+                  <span className="text-s">{tx.desc || (inc ? "Credits Received" : "Credits Sent")}</span>
                 </div>
-                <span style={{ fontWeight: 700, color: inc ? "var(--em-dark)" : "var(--red)" }}>
-                  {inc ? "+" : "-"}{tx.amount}{tx.type === "gas_faucet_claim" ? " POL" : "h"}
+                <span style={{ fontWeight: 700, color: tx.type === "gas_faucet_claim" ? "var(--amber)" : inc ? "var(--em)" : "#ef4444" }}>
+                  {tx.type === "gas_faucet_claim" ? "+0.05 POL" : `${inc ? "+" : "-"}${tx.amount}h`}
                 </span>
               </div>
             );
@@ -2655,10 +2676,10 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
   const [refreshingBal, setRefreshingBal] = useState(false);
   const [gasCountdown, setGasCountdown] = useState(0);
   
-  const initialPol = Math.max(parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0)).toFixed(4);
+  const initialPol = parseFloat(wallet?.balance || 0).toFixed(4);
   const [livePolBalance, setLivePolBalance] = useState(initialPol);
 
-  // Sync on-chain balance without causing re-render loops
+  // Sync on-chain balance directly from Polygon Amoy RPC
   const syncOnChainBalance = useCallback(async () => {
     if (!wallet?.address) return;
     setRefreshingBal(true);
@@ -2671,30 +2692,18 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
         onChainBal = await chain.getBalance(tempProvider, wallet.address);
       }
       const onChainNum = parseFloat(onChainBal || 0);
-      const userNum = parseFloat(user?.polBalance || 0);
+      const formatted = onChainNum.toFixed(4);
       
-      setLivePolBalance((prev) => {
-        const prevNum = parseFloat(prev || 0);
-        const maxVal = Math.max(onChainNum, userNum, prevNum);
-        const formatted = maxVal.toFixed(4);
-        if (setWallet) {
-          setWallet((w) => w ? ({ ...w, balance: formatted }) : w);
-        }
-        return formatted;
-      });
+      setLivePolBalance(formatted);
+      if (setWallet) {
+        setWallet((w) => w ? ({ ...w, balance: formatted }) : w);
+      }
     } catch (e) {
       console.warn("Sync balance error:", e);
     } finally {
       setRefreshingBal(false);
     }
-  }, [wallet?.address, wallet?.provider, setWallet, user?.polBalance]);
-
-  // Sync state if user DB polBalance changes
-  useEffect(() => {
-    if (user?.polBalance !== undefined) {
-      setLivePolBalance((prev) => Math.max(parseFloat(prev || 0), parseFloat(user.polBalance)).toFixed(4));
-    }
-  }, [user?.polBalance]);
+  }, [wallet?.address, wallet?.provider, setWallet]);
 
   // Cooldown countdown timer
   useEffect(() => {

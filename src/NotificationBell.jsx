@@ -270,15 +270,34 @@ export default function NotificationBell({ user, notify }) {
                           {n.title}
                         </div>
                         {!n.read && (
-                          <span
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: "50%",
-                              background: "var(--em)",
-                              flexShrink: 0,
-                            }}
-                          />
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={(e) => handleMarkRead(n._id, e)}
+                              style={{
+                                background: "rgba(16, 185, 129, 0.15)",
+                                border: "1px solid rgba(16, 185, 129, 0.3)",
+                                color: "var(--em)",
+                                fontSize: 10,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                                fontWeight: 700,
+                              }}
+                              title="Mark as read"
+                            >
+                              ✓ Mark read
+                            </button>
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: "50%",
+                                background: "var(--em)",
+                                flexShrink: 0,
+                              }}
+                            />
+                          </div>
                         )}
                       </div>
 

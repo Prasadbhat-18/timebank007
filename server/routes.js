@@ -2081,9 +2081,30 @@ r.put("/notifications/:id/read", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+r.post("/notifications/:id/read", async (req, res) => {
+  try {
+    await Notification.findByIdAndUpdate(req.params.id, { read: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 r.put("/notifications/read-all/:userId", async (req, res) => {
   try {
     await Notification.updateMany({ userId: req.params.userId, read: false }, { read: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/notifications/read-all/:userId", async (req, res) => {
+  try {
+    await Notification.updateMany({ userId: req.params.userId, read: false }, { read: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/notifications/read-all", requireAuth, async (req, res) => {
+  try {
+    await Notification.updateMany({ userId: req.user.id, read: false }, { read: true });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
