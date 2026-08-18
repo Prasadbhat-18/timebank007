@@ -2536,7 +2536,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
 }
 
 // ─── BOOKINGS────────────────────────────────────────────────────────────────
-function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
+function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setModal }) {
   const [bookings, setBookings] = useState([]);
   const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -2566,24 +2566,26 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
 
   const complete = async (b) => {
     let txHash = null, blockNumber = null;
-    // Attempt blockchain transfer if both parties have wallets
     const requester = getU(b.requesterId);
     const provider = getU(b.providerId);
-    if (wallet && requester?.wallet && provider?.wallet) {
+    if (wallet?.signer && provider?.wallet) {
       try {
-        notify("Signing blockchain transaction...", "info");
-        const result = await chain.sendCredits(wallet.signer, provider._id === user._id ? requester.wallet : provider.wallet, b.hours, wallet.isInbuilt);
-        txHash = result.txHash;
-        blockNumber = result.blockNumber;
-        notify("On-chain transfer confirmed!");
+        notify("Signing blockchain transaction on Polygon Amoy...", "info");
+        const result = await chain.sendCredits(wallet.signer, provider.wallet, b.hours, wallet.isInbuilt);
+        if (result?.txHash) {
+          txHash = result.txHash;
+          blockNumber = result.blockNumber;
+          notify("On-chain transfer confirmed! ⛓️");
+        }
       } catch (e) {
-        notify("Blockchain tx failed — completing without on-chain proof", "warning");
+        console.warn("Client-side direct transfer failed, using server gasless relayer:", e);
       }
     }
     try {
       await api.completeBooking(b._id, txHash, blockNumber);
-      notify("Session completed! Credits transferred.");
-      load(); refreshUser();
+      notify("Session completed! Credits transferred & recorded on blockchain.");
+      load();
+      if (refreshUser) refreshUser();
     } catch (e) { notify(e.message, "error"); }
   };
 
@@ -2603,10 +2605,10 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
             const statusColors = { pending: "ta", confirmed: "tb", completed: "tg", cancelled: "tr" };
             return (
               <motion.div key={b._id} className="bk-row" variants={fadeUp()}>
-                <div className="av" style={{ width: 34, height: 34, fontSize: 11, cursor: "pointer" }} onClick={() => other && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.avatar || "?"}</div>
+                <div className="av" style={{ width: 34, height: 34, fontSize: 11, cursor: "pointer" }} onClick={() => other && setModal && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.avatar || "?"}</div>
                 <div style={{ flex: 1 }}>
                   <div className="btwn">
-                    <div style={{ fontWeight: 700, fontSize: 14, cursor: "pointer" }} onClick={() => other && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.name || "User"}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, cursor: "pointer" }} onClick={() => other && setModal && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.name || "User"}</div>
                     <span className={`tag ${statusColors[b.status]}`}>{b.status}</span>
                   </div>
                   <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>
@@ -2618,8 +2620,12 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
                     {b.status === "pending" && isProvider && <><button className="btn btn-g btn-sm" onClick={() => confirm(b)}>Confirm</button><button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Decline</button></>}
                     {b.status === "confirmed" && isProvider && <button className="btn btn-g btn-sm" onClick={() => complete(b)}>Complete session</button>}
                     {b.status === "pending" && !isProvider && <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Cancel</button>}
-                    {b.status === "completed" && !isProvider && !b.requesterReviewed && (
-                      <button className="btn btn-o btn-sm" style={{ color: "var(--yellow)", borderColor: "var(--yellow)" }} onClick={() => setModal(<ReviewModal booking={b} refreshUser={() => { load(); refreshUser(); }} notify={notify} close={() => setModal(null)} />)}>
+                    {b.status === "completed" && (
+                      <button
+                        className="btn btn-o btn-sm"
+                        style={{ color: "var(--yellow)", borderColor: "var(--yellow)", display: "inline-flex", alignItems: "center", gap: 4 }}
+                        onClick={() => setModal && setModal(<ReviewModal booking={b} refreshUser={() => { load(); if (refreshUser) refreshUser(); }} notify={notify} close={() => setModal(null)} />)}
+                      >
                         ⭐ Leave Review
                       </button>
                     )}
