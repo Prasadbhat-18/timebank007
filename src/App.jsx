@@ -2341,12 +2341,14 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
             return (
               <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                 <div className="row">
-                  <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : "tg"}`}>
-                    {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : "Transfer"}
+                  <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : tx.type === "gas_faucet_claim" ? "ta" : "tg"}`}>
+                    {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : tx.type === "gas_faucet_claim" ? "Gas Station" : "Transfer"}
                   </span>
                   <span className="text-s">{tx.desc}</span>
                 </div>
-                <span style={{ fontWeight: 700, color: inc ? "var(--em-dark)" : "var(--red)" }}>{inc ? "+" : "-"}{tx.amount}h</span>
+                <span style={{ fontWeight: 700, color: inc ? "var(--em-dark)" : "var(--red)" }}>
+                  {inc ? "+" : "-"}{tx.amount}{tx.type === "gas_faucet_claim" ? " POL" : "h"}
+                </span>
               </div>
             );
           })}
@@ -2949,8 +2951,8 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
           return (
             <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "8px 0", borderBottom: "1px solid var(--border)", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
               <div className="row" style={{ gap: 10, alignItems: "center" }}>
-                <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : "tg"}`}>
-                  {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : "Transfer"}
+                <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : tx.type === "gas_faucet_claim" ? "ta" : "tg"}`}>
+                  {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : tx.type === "gas_faucet_claim" ? "Gas Station" : "Transfer"}
                 </span>
                 <div>
                   <div style={{ fontWeight: 600 }}>{tx.desc}</div>
@@ -2967,7 +2969,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
                 </div>
               </div>
               <span style={{ fontWeight: 800, fontSize: 14, color: inc ? "var(--em-dark)" : "var(--red)" }}>
-                {inc ? "+" : "-"}{tx.amount}h
+                {inc ? "+" : "-"}{tx.amount}{tx.type === "gas_faucet_claim" ? " POL" : "h"}
               </span>
             </div>
           );
