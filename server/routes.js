@@ -601,8 +601,38 @@ r.post("/auth/register/student", async (req, res) => {
     });
 
     if (fraudCheck.blocked) {
+      let specificMessage = "We could not create this account — it looks like it may already exist.";
+      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
+        const existingUser = await User.findOne({ email: cleanEmail });
+        if (existingUser && otp) {
+          if (activeFace && (!existingUser.faceDescriptor || existingUser.faceDescriptor.length === 0)) {
+            existingUser.faceDescriptor = activeFace;
+          }
+          if (resolvedCollege && !existingUser.college) {
+            existingUser.college = resolvedCollege.name;
+            existingUser.collegeId = resolvedCollege._id;
+          }
+          existingUser.lastActiveAt = new Date();
+          await existingUser.save();
+          const token = generateToken(existingUser);
+          return res.json({
+            success: true,
+            token,
+            user: existingUser,
+            message: "Welcome back! Signed into your existing account 🎉",
+          });
+        }
+        specificMessage = "An account with this email address already exists. Please switch to Sign In to log in.";
+      } else if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
+        specificMessage = "This phone number is already registered under another account.";
+      } else if (fraudCheck.reasons.includes("ID_NUMBER_EXISTS")) {
+        specificMessage = "This College ID / USN is already registered.";
+      } else if (fraudCheck.reasons.includes("FACE_MATCH")) {
+        specificMessage = "This face scan matches another registered user account.";
+      }
+
       return res.status(409).json({
-        error: "We could not create this account — it matches an existing identity or security policy violation.",
+        error: specificMessage,
         code: "DUPLICATE_ACCOUNT",
         reasons: fraudCheck.reasons,
       });
@@ -745,8 +775,32 @@ r.post("/auth/register/general", async (req, res) => {
     });
 
     if (fraudCheck.blocked) {
+      let specificMessage = "We could not create this account — it looks like it may already exist.";
+      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
+        const existingUser = await User.findOne({ email: cleanEmail });
+        if (existingUser && otp) {
+          if (activeFace && (!existingUser.faceDescriptor || existingUser.faceDescriptor.length === 0)) {
+            existingUser.faceDescriptor = activeFace;
+          }
+          existingUser.lastActiveAt = new Date();
+          await existingUser.save();
+          const token = generateToken(existingUser);
+          return res.json({
+            success: true,
+            token,
+            user: existingUser,
+            message: "Welcome back! Signed into your existing account 🎉",
+          });
+        }
+        specificMessage = "An account with this email address already exists. Please switch to Sign In to log in.";
+      } else if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
+        specificMessage = "This phone number is already registered under another account.";
+      } else if (fraudCheck.reasons.includes("FACE_MATCH")) {
+        specificMessage = "This face scan matches another registered user account.";
+      }
+
       return res.status(409).json({
-        error: "We could not create this account — it looks like it may already exist.",
+        error: specificMessage,
         code: "DUPLICATE_ACCOUNT",
         reasons: fraudCheck.reasons,
       });

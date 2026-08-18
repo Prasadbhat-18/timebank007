@@ -34,52 +34,65 @@ export async function checkDuplicateRegistration({
   let riskScore = 0;
 
   // 1. Email check (Hard Signal)
-  if (email && (await User.findOne({ email: email.toLowerCase() }))) {
+  const cleanEmail = email ? email.toLowerCase().trim() : "";
+  const existingUser = cleanEmail ? await User.findOne({ email: cleanEmail }) : null;
+  if (existingUser) {
     reasons.push("EMAIL_EXISTS");
     riskScore += 100;
   }
 
-  // 2. Phone Hash check (Hard Signal)
-  const phoneHash = phone ? hashIdentifier(phone) : null;
-  if (phoneHash && (await User.findOne({ phoneHash }))) {
-    reasons.push("PHONE_EXISTS");
-    riskScore += 100;
-  }
-
-  // 3. College ID Hash check (Hard Signal)
-  const idHash = collegeIdNumber ? hashIdentifier(collegeIdNumber) : null;
-  if (idHash && (await User.findOne({ idNumberHash: idHash }))) {
-    reasons.push("ID_NUMBER_EXISTS");
-    riskScore += 100;
-  }
-
-  // 4. Device Fingerprint Reuse (Soft Signal)
-  if (deviceFingerprint) {
-    const deviceCount = await User.countDocuments({ deviceFingerprints: deviceFingerprint });
-    if (deviceCount >= 1) {
-      reasons.push("DEVICE_REUSED");
-      riskScore += 25 * Math.min(deviceCount, 4);
+  // 2. Phone Hash check (Hard Signal) — only if phone is provided
+  const cleanPhone = phone ? String(phone).trim() : "";
+  const phoneHash = cleanPhone ? hashIdentifier(cleanPhone) : null;
+  if (phoneHash) {
+    const existingPhone = await User.findOne({ phoneHash, email: { $ne: cleanEmail } });
+    if (existingPhone) {
+      reasons.push("PHONE_EXISTS");
+      riskScore += 100;
     }
   }
 
-  // 5. IP Registration Burst (Soft Signal)
+  // 3. College ID Hash check (Hard Signal) — only if ID is provided
+  const cleanId = collegeIdNumber ? String(collegeIdNumber).trim() : "";
+  const idHash = cleanId ? hashIdentifier(cleanId) : null;
+  if (idHash) {
+    const existingId = await User.findOne({ idNumberHash: idHash, email: { $ne: cleanEmail } });
+    if (existingId) {
+      reasons.push("ID_NUMBER_EXISTS");
+      riskScore += 100;
+    }
+  }
+
+  // 4. Device Fingerprint Reuse (Soft Signal — capped at 30, never blocks alone)
+  if (deviceFingerprint) {
+    const deviceCount = await User.countDocuments({ deviceFingerprints: deviceFingerprint });
+    if (deviceCount >= 2) {
+      reasons.push("DEVICE_REUSED");
+      riskScore += Math.min(deviceCount * 10, 30);
+    }
+  }
+
+  // 5. IP Registration Burst (Soft Signal — capped at 20, never blocks alone)
   if (ip) {
     const recentFromIp = await User.countDocuments({
       registrationIp: ip,
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     });
-    if (recentFromIp >= 3) {
+    if (recentFromIp >= 10) {
       reasons.push("IP_BURST");
       riskScore += 20;
     }
   }
 
-  // 6. Face Embedding Match (Hard Signal)
+  // 6. Face Embedding Match (Hard Signal) — only against different email accounts
   let bestMatch = null;
   let bestDistance = Infinity;
 
   if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
-    const candidates = await User.find({ faceDescriptor: { $exists: true, $ne: [] } });
+    const candidates = await User.find({
+      email: { $ne: cleanEmail },
+      faceDescriptor: { $exists: true, $ne: [] },
+    });
     for (const candidate of candidates) {
       if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
       const distance = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
@@ -88,7 +101,8 @@ export async function checkDuplicateRegistration({
         bestMatch = candidate;
       }
     }
-    if (bestMatch && bestDistance < FACE_MATCH_THRESHOLD) {
+    // High-confidence threshold (distance < 0.45)
+    if (bestMatch && bestDistance < 0.45) {
       reasons.push("FACE_MATCH");
       riskScore += 100;
       return {
