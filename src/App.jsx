@@ -2907,11 +2907,19 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
       <div className="ph"><h1>Profile</h1><p>Manage your account</p></div>
       <motion.div className="g2" {...fadeUp(0.1)}>
         <div className="card">
-          {user.isAlumni && (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(139, 92, 246, 0.15)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700, color: "var(--purple)", marginBottom: 12 }}>
-              🎓 Verified Alumni · {user.almaMater || user.college} {user.graduationYear ? `(Class of ${user.graduationYear})` : ""}
+          {user.isAlumni ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(139, 92, 246, 0.12)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: 10, padding: "8px 14px", marginBottom: 14 }}>
+              <span style={{ fontSize: 18 }}>🎓</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13.5, color: "var(--purple)" }}>
+                  Verified Alumni · {user.almaMater || user.college || "University Graduate"}
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                  {user.graduationYear ? `Class of ${user.graduationYear} · ` : ""}General Account with Academic Credentials
+                </div>
+              </div>
             </div>
-          )}
+          ) : null}
           <div className="row mb2">
             <div className="av" style={{ width: 54, height: 54, fontSize: 18 }}>{user.avatar}</div>
             <div>
@@ -2934,7 +2942,7 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
           )}
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="btn btn-o btn-sm" onClick={editProfile}>Edit profile</button>
-            {user.role === "student" && (
+            {!user.isAlumni && user.role !== "websiteAdmin" && user.role !== "collegeAdmin" && user.role !== "super_admin" && user.role !== "institute_admin" && (
               <button className="btn btn-g btn-sm" onClick={graduateAccount}>🎓 Graduate Account</button>
             )}
             <button className="btn btn-o btn-sm" onClick={doLogout}>Sign out</button>
@@ -2955,8 +2963,8 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
         </div>
       </motion.div>
 
-      {/* Graduation Transition Action Banner for Students */}
-      {user.role === "student" && (
+      {/* Graduation Transition Action Banner for Students / Non-Alumni */}
+      {!user.isAlumni && user.role !== "websiteAdmin" && user.role !== "collegeAdmin" && user.role !== "super_admin" && user.role !== "institute_admin" && (
         <motion.div className="card mt2" {...fadeUp(0.12)} style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(139,92,246,0.08) 100%)", border: "1px solid rgba(16,185,129,0.3)" }}>
           <div className="btwn" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
