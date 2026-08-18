@@ -2644,6 +2644,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
   const initialPol = Math.max(parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0)).toFixed(4);
   const [livePolBalance, setLivePolBalance] = useState(initialPol);
 
+  // Sync on-chain balance without causing re-render loops
   const syncOnChainBalance = useCallback(async () => {
     if (!wallet?.address) return;
     setRefreshingBal(true);
@@ -2657,27 +2658,31 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
       }
       const onChainNum = parseFloat(onChainBal || 0);
       const userNum = parseFloat(user?.polBalance || 0);
-      const currentLive = parseFloat(livePolBalance || 0);
-      const maxVal = Math.max(onChainNum, userNum, currentLive);
-      const formatted = maxVal.toFixed(4);
-      setLivePolBalance(formatted);
-      if (setWallet) {
-        setWallet((prev) => prev ? ({ ...prev, balance: formatted }) : prev);
-      }
+      
+      setLivePolBalance((prev) => {
+        const prevNum = parseFloat(prev || 0);
+        const maxVal = Math.max(onChainNum, userNum, prevNum);
+        const formatted = maxVal.toFixed(4);
+        if (setWallet) {
+          setWallet((w) => w ? ({ ...w, balance: formatted }) : w);
+        }
+        return formatted;
+      });
     } catch (e) {
       console.warn("Sync balance error:", e);
     } finally {
       setRefreshingBal(false);
     }
-  }, [wallet, setWallet, user?.polBalance, livePolBalance]);
+  }, [wallet?.address, wallet?.provider, setWallet, user?.polBalance]);
 
+  // Sync state if user DB polBalance changes
   useEffect(() => {
-    if (user?.polBalance !== undefined || wallet?.balance !== undefined) {
-      const highest = Math.max(parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0));
-      setLivePolBalance((prev) => Math.max(parseFloat(prev || 0), highest).toFixed(4));
+    if (user?.polBalance !== undefined) {
+      setLivePolBalance((prev) => Math.max(parseFloat(prev || 0), parseFloat(user.polBalance)).toFixed(4));
     }
-  }, [user?.polBalance, wallet?.balance]);
+  }, [user?.polBalance]);
 
+  // Cooldown countdown timer
   useEffect(() => {
     let timer;
     if (gasCountdown > 0) {
@@ -2686,12 +2691,15 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
     return () => clearTimeout(timer);
   }, [gasCountdown]);
 
+  // Load initial data
   const loadData = useCallback(() => {
+    if (!user?._id) return;
     api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
     api.fetchBlockchainRecords().then(setBcRecords).catch(() => {});
     api.fetchFaucetStatus().then(setRelayerStatus).catch(() => {});
-  }, [user]);
+  }, [user?._id]);
 
+  // Real-time socket listeners
   useEffect(() => {
     let socket = null;
     try {
@@ -2715,14 +2723,22 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
             setWallet((prev) => prev ? ({ ...prev, balance: parseFloat(data.polBalance).toFixed(4) }) : prev);
           }
         }
-        loadData();
+        if (data?.claimsRemainingToday !== undefined) {
+          setRelayerStatus((prev) => prev ? ({
+            ...prev,
+            claimsRemainingToday: data.claimsRemainingToday,
+            claimsMadeToday: data.claimsMadeToday,
+          }) : prev);
+        }
       });
 
       socket.on("wallet_update", (data) => {
         if (data?.polBalance !== undefined) {
           setLivePolBalance(parseFloat(data.polBalance).toFixed(4));
         }
-        loadData();
+        if (data?.claimsRemainingToday !== undefined) {
+          setRelayerStatus((prev) => prev ? ({ ...prev, claimsRemainingToday: data.claimsRemainingToday }) : prev);
+        }
       });
     } catch (e) {
       console.warn("Wallet socket listener error:", e);
@@ -2731,8 +2747,9 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
     return () => {
       if (socket) socket.disconnect();
     };
-  }, [loadData, setWallet]);
+  }, [setWallet]);
 
+  // Initial mount trigger
   useEffect(() => {
     loadData();
     syncOnChainBalance();
@@ -2747,7 +2764,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
     setClaimingGas(true);
     try {
       const res = await api.dripGas(wallet.address);
-      setGasCountdown(90);
+      setGasCountdown(60);
       
       // Calculate updated balance
       const currentVal = Math.max(parseFloat(livePolBalance || 0), parseFloat(user?.polBalance || 0), parseFloat(wallet?.balance || 0));
@@ -2755,6 +2772,15 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
       setLivePolBalance(newBal);
       if (setWallet) {
         setWallet((prev) => prev ? ({ ...prev, balance: newBal }) : prev);
+      }
+
+      // Update remaining claims in local state
+      if (res.claimsRemainingToday !== undefined) {
+        setRelayerStatus((prev) => prev ? ({
+          ...prev,
+          claimsRemainingToday: res.claimsRemainingToday,
+          claimsMadeToday: res.claimsMadeToday,
+        }) : prev);
       }
 
       // Prepend to Blockchain Ledger in UI immediately
@@ -2769,14 +2795,14 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
         toId: user._id,
         amount: 0.05,
         type: "gas_faucet_claim",
-        desc: "1-Click Gas Claim — 0.05 POL testnet gas",
+        desc: `1-Click Gas Claim — 0.05 POL (Claim ${res.claimsMadeToday || 1}/5)`,
         txHash: res.txHash,
         blockNumber: res.blockNumber,
         createdAt: new Date().toISOString(),
       };
       setTxs((prev) => [dripTx, ...prev]);
 
-      notify(`⛽ +0.05 POL testnet gas dispatched! Tx: ${res.txHash.slice(0, 12)}...`);
+      notify(`⛽ +0.05 POL testnet gas dispatched! (${res.claimsRemainingToday !== undefined ? `${res.claimsRemainingToday}/5 claims remaining today` : ""})`);
       
       if (refreshUser) refreshUser();
       loadData();
@@ -2858,23 +2884,40 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
         <motion.div className="card mb2" style={{ border: "1px solid rgba(139, 92, 246, 0.35)", background: "rgba(139, 92, 246, 0.05)" }} {...fadeUp(0.15)}>
           <div className="btwn" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span>⛽ 1-Click Instant Testnet Gas Dispenser</span>
-                <span className="tag tp" style={{ fontSize: 11, padding: "2px 8px" }}>
-                  {relayerStatus?.claimsRemainingToday !== undefined ? `${relayerStatus.claimsRemainingToday}/5 claims left today` : "5 claims / day (0.25 POL)"}
+                <span className={`tag ${relayerStatus?.claimsRemainingToday === 0 ? "tr" : "tp"}`} style={{ fontSize: 11, padding: "2px 8px" }}>
+                  {relayerStatus?.claimsRemainingToday !== undefined
+                    ? `${relayerStatus.claimsRemainingToday}/5 claims left today (${relayerStatus.claimsMadeToday || (5 - relayerStatus.claimsRemainingToday)}/5 used)`
+                    : "5 claims / day (0.25 POL)"}
                 </span>
               </div>
               <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 4 }}>
-                Dispense 0.05 POL testnet gas directly to your wallet in 1 click (5 claims / 0.25 POL per day).
+                Dispense 0.05 POL testnet gas directly to your wallet in 1 click (Strict 5 claims / 0.25 POL per day quota).
               </div>
             </div>
             <button
               className="btn btn-p btn-sm"
               onClick={handleClaimGas}
               disabled={claimingGas || gasCountdown > 0 || relayerStatus?.claimsRemainingToday === 0}
-              style={{ padding: "8px 16px", fontWeight: 700, fontSize: 13, height: 38, minWidth: 180, justifyContent: "center" }}
+              style={{
+                padding: "8px 16px",
+                fontWeight: 700,
+                fontSize: 13,
+                height: 38,
+                minWidth: 180,
+                justifyContent: "center",
+                opacity: relayerStatus?.claimsRemainingToday === 0 ? 0.6 : 1,
+                cursor: relayerStatus?.claimsRemainingToday === 0 ? "not-allowed" : "pointer"
+              }}
             >
-              {claimingGas ? "Dispensing 0.05 POL..." : gasCountdown > 0 ? `⏳ Cooldown (${gasCountdown}s)` : relayerStatus?.claimsRemainingToday === 0 ? "🚫 Daily Limit Reached" : "⛽ Claim 0.05 POL Gas"}
+              {claimingGas
+                ? "Dispensing 0.05 POL..."
+                : gasCountdown > 0
+                ? `⏳ Cooldown (${gasCountdown}s)`
+                : relayerStatus?.claimsRemainingToday === 0
+                ? "🚫 Daily Limit Reached (5/5)"
+                : "⛽ Claim 0.05 POL Gas"}
             </button>
           </div>
         </motion.div>

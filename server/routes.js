@@ -1183,22 +1183,27 @@ r.post("/user/graduate", requireAuth, async (req, res) => {
 });
 
 // ─── 1-CLICK INSTANT TESTNET FAUCET / GAS STATION ───────────────────────────
-const userDripHistory = new Map(); // userId -> { lastDripTime, countToday, resetAt }
-const DAILY_DRIP_LIMIT = 5; // 5 claims per day (0.25 POL total)
-const COOLDOWN_MS = 90 * 1000; // 90s cooldown between claims
+const DAILY_DRIP_LIMIT = 5; // Exactly 5 claims per 24 hours (0.25 POL total)
+const COOLDOWN_MS = 60 * 1000; // 60s cooldown between claims
 
 r.get("/faucet/status", async (req, res) => {
   try {
     const status = await relayer.getRelayerStatus();
-    let userClaimsLeft = DAILY_DRIP_LIMIT;
+    let claimsRemaining = DAILY_DRIP_LIMIT;
+    let claimsMade = 0;
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       try {
-        const decoded = jwt.verify(authHeader.split(" ")[1], JWT_SECRET);
-        const history = userDripHistory.get(decoded.id);
-        if (history && Date.now() < history.resetAt) {
-          userClaimsLeft = Math.max(0, DAILY_DRIP_LIMIT - history.countToday);
+        const decoded = jwt.verify(authHeader.split(" ")[1], process.env.JWT_SECRET || "timebank_secret_key");
+        const user = await User.findById(decoded.id);
+        if (user) {
+          const now = Date.now();
+          const resetTime = user.gasClaims?.resetAt ? new Date(user.gasClaims.resetAt).getTime() : 0;
+          if (now < resetTime) {
+            claimsMade = user.gasClaims?.count || 0;
+            claimsRemaining = Math.max(0, DAILY_DRIP_LIMIT - claimsMade);
+          }
         }
       } catch {}
     }
@@ -1207,7 +1212,8 @@ r.get("/faucet/status", async (req, res) => {
       ...status,
       dailyLimit: DAILY_DRIP_LIMIT,
       amountPerClaim: "0.05 POL",
-      claimsRemainingToday: userClaimsLeft,
+      claimsMadeToday: claimsMade,
+      claimsRemainingToday: claimsRemaining,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1226,39 +1232,44 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
     }
 
     const now = Date.now();
-    let history = userDripHistory.get(userId);
+    const resetTime = user.gasClaims?.resetAt ? new Date(user.gasClaims.resetAt).getTime() : 0;
+    const lastTime = user.gasClaims?.lastClaimAt ? new Date(user.gasClaims.lastClaimAt).getTime() : 0;
 
-    // Reset daily counter after 24 hours
-    if (!history || now >= history.resetAt) {
-      history = { lastDripTime: 0, countToday: 0, resetAt: now + 24 * 60 * 60 * 1000 };
-      userDripHistory.set(userId, history);
+    // Reset daily counter if window has passed or not initialized
+    if (!user.gasClaims || now >= resetTime) {
+      user.gasClaims = {
+        count: 0,
+        resetAt: new Date(now + 24 * 60 * 60 * 1000),
+        lastClaimAt: null,
+      };
     }
 
-    // 1. Check daily quota limit
-    if (history.countToday >= DAILY_DRIP_LIMIT) {
-      const hoursLeft = Math.ceil((history.resetAt - now) / (60 * 60 * 1000));
+    // 1. Strict Check: Maximum 5 claims per day
+    if (user.gasClaims.count >= DAILY_DRIP_LIMIT) {
+      const hoursLeft = Math.max(1, Math.ceil((new Date(user.gasClaims.resetAt).getTime() - now) / (60 * 60 * 1000)));
       return res.status(429).json({
-        error: `Daily testnet gas limit reached (Max ${DAILY_DRIP_LIMIT} claims / 0.25 POL per day). Resets in ~${hoursLeft}h.`,
+        error: `Daily gas limit reached (${DAILY_DRIP_LIMIT}/${DAILY_DRIP_LIMIT} claims used today). Resets in ~${hoursLeft} hour(s).`,
         dailyLimitReached: true,
+        claimsRemainingToday: 0,
+        claimsMadeToday: DAILY_DRIP_LIMIT,
       });
     }
 
-    // 2. Check 90s cooldown
-    if (now - history.lastDripTime < COOLDOWN_MS) {
-      const waitSecs = Math.ceil((COOLDOWN_MS - (now - history.lastDripTime)) / 1000);
+    // 2. Cooldown check
+    if (lastTime && now - lastTime < COOLDOWN_MS) {
+      const waitSecs = Math.ceil((COOLDOWN_MS - (now - lastTime)) / 1000);
       return res.status(429).json({ error: `Please wait ${waitSecs}s before claiming gas again.` });
     }
 
     const dripRes = await relayer.dripGas(targetAddress, "0.05");
     
-    // Update history
-    history.lastDripTime = now;
-    history.countToday += 1;
-    userDripHistory.set(userId, history);
-
-    // Update user POL balance
+    // Update user gas claims counter & POL balance in MongoDB
+    user.gasClaims.count += 1;
+    user.gasClaims.lastClaimAt = new Date(now);
     user.polBalance = Number(((user.polBalance || 0) + 0.05).toFixed(4));
     await user.save();
+
+    const claimsRemaining = Math.max(0, DAILY_DRIP_LIMIT - user.gasClaims.count);
 
     // Record on transaction log
     await Transaction.create({
@@ -1267,7 +1278,7 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       bookingId: null,
       amount: 0.05,
       type: "gas_faucet_claim",
-      desc: "1-Click Gas Claim — 0.05 POL testnet gas",
+      desc: `1-Click Gas Claim — 0.05 POL (Claim ${user.gasClaims.count}/${DAILY_DRIP_LIMIT})`,
       txHash: dripRes.txHash,
       blockNumber: dripRes.blockNumber,
     });
@@ -1293,16 +1304,22 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       txHash: dripRes.txHash,
       amount: "0.05",
       polBalance: user.polBalance,
-      claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
+      claimsMadeToday: user.gasClaims.count,
+      claimsRemainingToday: claimsRemaining,
       entry: bcEntry,
     });
 
-    broadcastRealtimeEvent("wallet_update", { userId, polBalance: user.polBalance });
+    broadcastRealtimeEvent("wallet_update", {
+      userId,
+      polBalance: user.polBalance,
+      claimsRemainingToday: claimsRemaining,
+    });
 
     res.json({
       ...dripRes,
       polBalance: user.polBalance,
-      claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
+      claimsMadeToday: user.gasClaims.count,
+      claimsRemainingToday: claimsRemaining,
       dailyLimit: DAILY_DRIP_LIMIT,
       entry: bcEntry,
     });
