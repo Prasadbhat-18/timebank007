@@ -317,11 +317,37 @@ r.post("/auth/login", async (req, res) => {
       return res.status(403).json({ error: "Your account has been suspended/blocked due to policy violations." });
     }
 
-    // Face match check (if user has enrolled a face and descriptor was provided)
+    // Face match check & Cross-Account Biometric Impersonation Detection
     let faceMatch = null;
-    if (faceDescriptor && Array.isArray(faceDescriptor) && user.faceDescriptor && user.faceDescriptor.length === 128) {
-      const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
-      faceMatch = dist <= FACE_MATCH_THRESHOLD;
+    let crossAccountFlag = null;
+    if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
+      if (user.faceDescriptor && user.faceDescriptor.length === 128) {
+        const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
+        faceMatch = dist <= FACE_MATCH_THRESHOLD;
+      }
+
+      // Check if this face belongs to ANY OTHER account in the system
+      const candidates = await User.find({
+        _id: { $ne: user._id },
+        faceDescriptor: { $exists: true, $ne: [] },
+      });
+      for (const candidate of candidates) {
+        if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
+        const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
+        if (otherDist < 0.45) {
+          crossAccountFlag = {
+            matchedUserId: candidate._id,
+            matchedEmail: candidate.email,
+            distance: otherDist,
+          };
+          user.riskScore = Math.min((user.riskScore || 0) + 50, 100);
+          if (!user.flaggedReasons) user.flaggedReasons = [];
+          if (!user.flaggedReasons.includes("CROSS_ACCOUNT_FACE_MATCH")) {
+            user.flaggedReasons.push("CROSS_ACCOUNT_FACE_MATCH");
+          }
+          break;
+        }
+      }
     }
 
     // Track device fingerprint
@@ -339,7 +365,7 @@ r.post("/auth/login", async (req, res) => {
     await user.save();
 
     const token = generateToken(user);
-    res.json({ token, user, faceMatch, newDevice });
+    res.json({ token, user, faceMatch, crossAccountFlag, newDevice });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
