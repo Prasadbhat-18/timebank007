@@ -13,6 +13,7 @@ import {
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
 import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
 import { sendOtpEmail } from "./emailService.js";
+import * as relayer from "./relayerService.js";
 import fs from "fs";
 import path from "path";
 
@@ -1132,6 +1133,73 @@ r.post("/user/graduate", requireAuth, async (req, res) => {
   }
 });
 
+// ─── 1-CLICK INSTANT TESTNET FAUCET / GAS STATION ───────────────────────────
+const userLastDripMap = new Map();
+
+r.get("/faucet/status", async (_req, res) => {
+  try {
+    const status = await relayer.getRelayerStatus();
+    res.json(status);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/faucet/drip", requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const targetAddress = req.body.address || user.wallet;
+    if (!targetAddress) {
+      return res.status(400).json({ error: "No wallet address specified for gas drip." });
+    }
+
+    // Rate limiting: 1 drip per 90 seconds per user
+    const lastDrip = userLastDripMap.get(userId);
+    if (lastDrip && Date.now() - lastDrip < 90 * 1000) {
+      const waitSecs = Math.ceil((90 * 1000 - (Date.now() - lastDrip)) / 1000);
+      return res.status(429).json({ error: `Please wait ${waitSecs}s before claiming gas again.` });
+    }
+
+    const dripRes = await relayer.dripGas(targetAddress, "0.05");
+    userLastDripMap.set(userId, Date.now());
+
+    // Broadcast real-time event for UI sync
+    broadcastRealtimeEvent("faucet_drip", {
+      userId,
+      address: targetAddress,
+      txHash: dripRes.txHash,
+      amount: "0.05",
+    });
+
+    res.json(dripRes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── GASLESS BLOCKCHAIN RELAY ENDPOINT ───────────────────────────────────────
+r.post("/blockchain/relay-transfer", requireAuth, async (req, res) => {
+  try {
+    const { toAddress, credits, bookingId } = req.body;
+    const relayRes = await relayer.relayCreditTransfer(toAddress, credits || 1, {
+      bookingId,
+      senderId: req.user.id,
+    });
+
+    broadcastRealtimeEvent("blockchain_relay", {
+      toAddress,
+      txHash: relayRes.txHash,
+      blockNumber: relayRes.blockNumber,
+    });
+
+    res.json(relayRes);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ─── USERS ───────────────────────────────────────────────────────────────────
 r.get("/users", async (_req, res) => {
@@ -1533,19 +1601,33 @@ r.post("/bookings/:id/complete", async (req, res) => {
 async function completeBookingInternal(booking, req, res) {
   try {
     const { txHash, blockNumber } = req.body || {};
+    const requester = await User.findById(booking.requesterId);
+    const provider = await User.findById(booking.providerId);
+
+    let finalTxHash = txHash || null;
+    let finalBlockNumber = blockNumber || null;
+
+    if (!finalTxHash && provider?.wallet) {
+      try {
+        const relayRes = await relayer.relayCreditTransfer(provider.wallet, booking.hours, {
+          bookingId: booking._id,
+          type: "service_completion",
+        });
+        finalTxHash = relayRes.txHash;
+        finalBlockNumber = relayRes.blockNumber;
+      } catch (err) {
+        console.warn("[Booking] Relayer auto-execution fallback:", err.message);
+      }
+    }
 
     // Update booking status
     booking.status = "completed";
     booking.providerConfirmed = true;
     booking.requesterConfirmed = true;
-    booking.txHash = txHash || null;
-    booking.blockNumber = blockNumber || null;
+    booking.txHash = finalTxHash;
+    booking.blockNumber = finalBlockNumber;
     booking.escrowHeld = false;
     await booking.save();
-
-    // Transfer credits: escrow → provider
-    const requester = await User.findById(booking.requesterId);
-    const provider = await User.findById(booking.providerId);
 
     if (requester && provider) {
       // Credits were already deducted from requester during escrow
@@ -2473,11 +2555,31 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
       return res.status(403).json({ error: "Cannot verify activity outside your college" });
     }
 
+    const finalCredits = credits !== undefined ? credits : (activity.credits || 1);
+    const finalPts = pts !== undefined ? pts : (activity.pts || 1);
+
+    let finalTxHash = txHash || null;
+    let finalBlockNumber = blockNumber || null;
+
+    if (!finalTxHash && (user?.wallet || activity.userId)) {
+      try {
+        const relayRes = await relayer.relayCreditTransfer(
+          user?.wallet || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          finalCredits,
+          { aicteId: activity._id, title: activity.title }
+        );
+        finalTxHash = relayRes.txHash;
+        finalBlockNumber = relayRes.blockNumber;
+      } catch (err) {
+        console.warn("[AICTE] Relayer auto-execution fallback:", err.message);
+      }
+    }
+
     activity.verified = true;
-    activity.txHash = txHash || null;
-    activity.blockNumber = blockNumber || null;
-    if (pts !== undefined) activity.pts = pts;
-    if (credits !== undefined) activity.credits = credits;
+    activity.txHash = finalTxHash;
+    activity.blockNumber = finalBlockNumber;
+    activity.pts = finalPts;
+    activity.credits = finalCredits;
     await activity.save();
 
     // Add credits + points to user

@@ -2635,15 +2635,93 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
 function Wallet({ user, wallet, notify, connectWallet }) {
   const [txs, setTxs] = useState([]);
   const [bcRecords, setBcRecords] = useState([]);
+  const [relayerStatus, setRelayerStatus] = useState(null);
+  const [claimingGas, setClaimingGas] = useState(false);
+  const [gasCountdown, setGasCountdown] = useState(0);
+  const [livePolBalance, setLivePolBalance] = useState(wallet ? parseFloat(wallet.balance).toFixed(4) : "0.0000");
 
   useEffect(() => {
+    if (wallet) {
+      setLivePolBalance(parseFloat(wallet.balance).toFixed(4));
+    }
+  }, [wallet]);
+
+  useEffect(() => {
+    let timer;
+    if (gasCountdown > 0) {
+      timer = setTimeout(() => setGasCountdown((c) => c - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [gasCountdown]);
+
+  const loadData = useCallback(() => {
     api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
     api.fetchBlockchainRecords().then(setBcRecords).catch(() => {});
+    api.fetchFaucetStatus().then(setRelayerStatus).catch(() => {});
   }, [user]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Handle Real-Time 1-Click Gas Claim
+  const handleClaimGas = async () => {
+    if (!wallet?.address) {
+      notify("Please connect your wallet first", "warning");
+      return;
+    }
+    setClaimingGas(true);
+    try {
+      const res = await api.dripGas(wallet.address);
+      setGasCountdown(90);
+      notify(`⛽ 0.05 POL testnet gas dispatched! Tx: ${res.txHash.slice(0, 12)}...`);
+      
+      // Update balance in real-time
+      if (wallet.provider) {
+        chain.getBalance(wallet.provider, wallet.address).then((bal) => {
+          setLivePolBalance(parseFloat(bal).toFixed(4));
+        }).catch(() => {
+          setLivePolBalance((prev) => (parseFloat(prev) + 0.05).toFixed(4));
+        });
+      } else {
+        setLivePolBalance((prev) => (parseFloat(prev) + 0.05).toFixed(4));
+      }
+
+      loadData();
+    } catch (e) {
+      notify(e.message || "Failed to claim testnet gas", "error");
+    } finally {
+      setClaimingGas(false);
+    }
+  };
 
   return (
     <div className="inner">
       <div className="ph"><h1>Wallet</h1><p>Your credits and blockchain activity</p></div>
+      
+      {/* Zero-Gas Auto-Relayer Status Banner */}
+      <motion.div className="card mb2" style={{ background: "linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)", border: "1px solid rgba(16, 185, 129, 0.35)" }} {...fadeUp(0.08)}>
+        <div className="btwn" style={{ flexWrap: "wrap", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(16, 185, 129, 0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+              ⚡
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>Gasless Blockchain Engine Active</span>
+                <span className="tag tg" style={{ fontSize: 10, padding: "2px 8px" }}>Zero Gas Fees</span>
+              </div>
+              <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3 }}>
+                All Time Credit transfers and AICTE verifications are automatically sponsored on Polygon Amoy. No POL needed to exchange credits!
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--em)", fontWeight: 700 }}>🟢 Polygon Amoy Relayer Online</span>
+          </div>
+        </div>
+      </motion.div>
+
       <motion.div className="wallet-hero mb2" {...fadeUp(0.1)}>
         <div className="btwn">
           <span style={{ fontSize: 13, opacity: 0.7 }}>TimeBank Credits</span>
@@ -2658,7 +2736,7 @@ function Wallet({ user, wallet, notify, connectWallet }) {
         {wallet ? (
           <>
             <div style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.6, wordBreak: "break-all" }}>{wallet.address}</div>
-            <div className="btwn mt1"><span style={{ fontSize: 13 }}>POL balance</span><span style={{ fontWeight: 700 }}>{parseFloat(wallet.balance).toFixed(4)} POL</span></div>
+            <div className="btwn mt1"><span style={{ fontSize: 13 }}>POL balance</span><span style={{ fontWeight: 700 }}>{livePolBalance} POL</span></div>
             <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View on Polygonscan ↗</a>
           </>
         ) : (
@@ -2668,17 +2746,26 @@ function Wallet({ user, wallet, notify, connectWallet }) {
         )}
       </motion.div>
 
+      {/* 1-Click Instant Gas Dispenser Card */}
       {wallet && (
-        <motion.div className="card mb2" style={{ borderLeft: "4px solid var(--amber)", background: "rgba(245, 158, 11, 0.05)" }} {...fadeUp(0.15)}>
-          <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-            <span style={{ fontSize: "16px", color: "var(--amber)", marginTop: "2px" }}>⚠️</span>
-            <div style={{ fontSize: "12.5px", lineHeight: "1.4", color: "var(--text-secondary)" }}>
-              <strong style={{ color: "#fff", display: "block", marginBottom: "4px" }}>Gas Funding Required for On-Chain Logs</strong>
-              To perform real blockchain activities, your wallet must have native <strong>POL</strong> gas. If your balance is <strong>0.0000 POL</strong>, please copy your address above and request free testnet gas:
-              <a href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer" style={{ color: "var(--em)", fontWeight: "700", display: "inline-block", marginLeft: "6px", textDecoration: "underline" }}>
-                Official Polygon Faucet ↗
-              </a>
+        <motion.div className="card mb2" style={{ border: "1px solid rgba(139, 92, 246, 0.35)", background: "rgba(139, 92, 246, 0.05)" }} {...fadeUp(0.15)}>
+          <div className="btwn" style={{ flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⛽ 1-Click Instant Testnet Gas Dispenser</span>
+              </div>
+              <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                Want testnet POL for direct wallet signing or custom contracts? Dispense 0.05 POL instantly with zero external faucets.
+              </div>
             </div>
+            <button
+              className="btn btn-p btn-sm"
+              onClick={handleClaimGas}
+              disabled={claimingGas || gasCountdown > 0}
+              style={{ padding: "8px 16px", fontWeight: 700, fontSize: 13, height: 38, minWidth: 180, justifyContent: "center" }}
+            >
+              {claimingGas ? "Dispensing 0.05 POL..." : gasCountdown > 0 ? `⏳ Cooldown (${gasCountdown}s)` : "⛽ Claim 0.05 POL Gas"}
+            </button>
           </div>
         </motion.div>
       )}

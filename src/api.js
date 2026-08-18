@@ -212,9 +212,14 @@ export const addEmergencyContact = (data) =>
 export const removeEmergencyContact = (id) =>
   req(`/emergency/${id}`, { method: "DELETE" });
 
-// ─── Blockchain ──────────────────────────────────────────────────────────────
+// ─── Blockchain & Faucet ─────────────────────────────────────────────────────
 export const fetchBlockchainRecords = () => req("/blockchain");
 export const fetchUserBlockchain = (wallet) => req(`/blockchain/user/${wallet}`);
+export const fetchFaucetStatus = () => req("/faucet/status");
+export const dripGas = (address) =>
+  req("/faucet/drip", { method: "POST", body: JSON.stringify({ address }) });
+export const relayTransfer = (data) =>
+  req("/blockchain/relay-transfer", { method: "POST", body: JSON.stringify(data) });
 
 // ─── Admin ───────────────────────────────────────────────────────────────────
 export const fetchAdminStats = (prefix) => req(`/${prefix}/stats`);
