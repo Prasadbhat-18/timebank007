@@ -1207,6 +1207,19 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
     history.countToday += 1;
     userDripHistory.set(userId, history);
 
+    // Record on blockchain ledger
+    if (dripRes.txHash && dripRes.blockNumber) {
+      const bcEntry = await Blockchain.create({
+        block: dripRes.blockNumber,
+        txHash: dripRes.txHash,
+        from: "FAUCET_TREASURY",
+        to: targetAddress,
+        amount: 0.05,
+        type: "GAS_DRIP",
+      });
+      broadcastRealtimeEvent("blockchain_ledger_entry", bcEntry);
+    }
+
     // Broadcast real-time event for UI sync
     broadcastRealtimeEvent("faucet_drip", {
       userId,
@@ -1221,6 +1234,28 @@ r.post("/faucet/drip", requireAuth, async (req, res) => {
       claimsRemainingToday: DAILY_DRIP_LIMIT - history.countToday,
       dailyLimit: DAILY_DRIP_LIMIT,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── BLOCKCHAIN LEDGER ENDPOINTS ─────────────────────────────────────────────
+r.get("/blockchain", async (_req, res) => {
+  try {
+    const records = await Blockchain.find().sort({ createdAt: -1 }).limit(100);
+    res.json(records);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.get("/blockchain/user/:wallet", async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    const records = await Blockchain.find({
+      $or: [{ from: wallet }, { to: wallet }]
+    }).sort({ createdAt: -1 });
+    res.json(records);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1773,26 +1808,35 @@ async function completeBookingInternal(booking, req, res) {
     }
 
     // Record transaction
-    await Transaction.create({
+    const newTx = await Transaction.create({
       fromId: booking.requesterId.toString(),
       toId: booking.providerId.toString(),
       bookingId: booking._id,
       amount: booking.hours,
       type: "service_completed",
-      desc: `Service completed`,
-      txHash: txHash || null,
-      blockNumber: blockNumber || null,
+      desc: `Service completed: ${booking.serviceId?.title || "Skill Exchange"}`,
+      txHash: finalTxHash,
+      blockNumber: finalBlockNumber,
     });
 
-    // Record blockchain entry if we have tx data
-    if (txHash && blockNumber) {
-      await Blockchain.create({
-        block: blockNumber, txHash,
+    // Record blockchain entry on immutable ledger
+    if (finalTxHash && finalBlockNumber) {
+      const bcEntry = await Blockchain.create({
+        block: finalBlockNumber,
+        txHash: finalTxHash,
         from: requester?.wallet || booking.requesterId.toString(),
         to: provider?.wallet || booking.providerId.toString(),
-        amount: booking.hours, type: "TRANSFER",
+        amount: booking.hours,
+        type: "TRANSFER",
       });
+
+      broadcastRealtimeEvent("blockchain_ledger_entry", bcEntry);
     }
+
+    broadcastRealtimeEvent("wallet_update", {
+      requesterId: booking.requesterId,
+      providerId: booking.providerId,
+    });
 
     res.json({
       booking,
@@ -1800,6 +1844,8 @@ async function completeBookingInternal(booking, req, res) {
       requesterCredits: requester?.credits,
       providerLevel: provider?.level,
       levelUp: provider?.level > (req.body._oldProviderLevel || 0),
+      txHash: finalTxHash,
+      blockNumber: finalBlockNumber,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 }
@@ -2638,19 +2684,30 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
 
     // Record transaction
     await Transaction.create({
-      fromId: "SYSTEM", toId: activity.userId.toString(), bookingId: null,
-      amount: activity.credits, type: "aicte_reward",
-      desc: `AICTE: ${activity.title}`,
-      txHash: txHash || null, blockNumber: blockNumber || null,
+      fromId: "SYSTEM",
+      toId: activity.userId.toString(),
+      bookingId: null,
+      amount: activity.credits,
+      type: "aicte_reward",
+      desc: `AICTE Verified: ${activity.title}`,
+      txHash: finalTxHash,
+      blockNumber: finalBlockNumber,
     });
 
-    if (txHash && blockNumber) {
-      await Blockchain.create({
-        block: blockNumber, txHash,
-        from: "SYSTEM", to: user?.wallet || activity.userId.toString(),
-        amount: activity.credits, type: "MINT",
+    if (finalTxHash && finalBlockNumber) {
+      const bcEntry = await Blockchain.create({
+        block: finalBlockNumber,
+        txHash: finalTxHash,
+        from: "SYSTEM_AICTE_AUTHORITY",
+        to: user?.wallet || activity.userId.toString(),
+        amount: activity.credits,
+        type: "MINT",
       });
+
+      broadcastRealtimeEvent("blockchain_ledger_entry", bcEntry);
     }
+
+    broadcastRealtimeEvent("wallet_update", { userId: activity.userId });
 
     await createNotification(activity.userId, "credit",
       "AICTE Activity Approved! 🎓",

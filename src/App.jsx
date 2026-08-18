@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, cloneElement, isValidElement } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
+import { io } from "socket.io-client";
 import { AICTE_CFG } from "./store.js";
 import * as api from "./api.js";
 import * as chain from "./blockchain.js";
@@ -2685,8 +2686,34 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
   }, [user]);
 
   useEffect(() => {
-    loadData();
-    syncOnChainBalance();
+    let socket = null;
+    try {
+      socket = io(window.location.origin, {
+        auth: { token: localStorage.getItem("token") },
+        transports: ["websocket", "polling"],
+      });
+
+      socket.on("blockchain_ledger_entry", (entry) => {
+        if (!entry) return;
+        setBcRecords((prev) => [entry, ...prev.filter((x) => x._id !== entry._id)]);
+      });
+
+      socket.on("faucet_drip", (data) => {
+        loadData();
+        syncOnChainBalance();
+      });
+
+      socket.on("wallet_update", () => {
+        loadData();
+        syncOnChainBalance();
+      });
+    } catch (e) {
+      console.warn("Wallet socket listener error:", e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [loadData, syncOnChainBalance]);
 
   // Handle Real-Time 1-Click Gas Claim
@@ -2723,7 +2750,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
 
   return (
     <div className="inner">
-      <div className="ph"><h1>Wallet</h1><p>Your credits and blockchain activity</p></div>
+      <div className="ph"><h1>Wallet & Blockchain</h1><p>Real-time on-chain credits, gas station, and immutable ledger</p></div>
       
       {/* Zero-Gas Auto-Relayer Status Banner */}
       <motion.div className="card mb2" style={{ background: "linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)", border: "1px solid rgba(16, 185, 129, 0.35)" }} {...fadeUp(0.08)}>
@@ -2778,7 +2805,7 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
                 </button>
               </div>
             </div>
-            <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View on Polygonscan ↗</a>
+            <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View Wallet on Polygonscan ↗</a>
           </>
         ) : (
           <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>
@@ -2814,39 +2841,117 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
         </motion.div>
       )}
 
+      {/* Transaction History Card */}
       <motion.div className="card mb2" {...fadeUp(0.2)}>
-        <div className="card-t">Transaction history</div>
+        <div className="card-t">Transaction History</div>
         {txs.length === 0 ? <div className="text-m" style={{ fontSize: 13 }}>No transactions yet</div> : txs.map((tx) => {
           const inc = tx.toId === user._id;
           return (
-            <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-              <div className="row" style={{ gap: 10 }}>
+            <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "8px 0", borderBottom: "1px solid var(--border)", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <div className="row" style={{ gap: 10, alignItems: "center" }}>
                 <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : "tg"}`}>
                   {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : "Transfer"}
                 </span>
                 <div>
-                  <div>{tx.desc}</div>
-                  {tx.txHash && <a href={chain.txLink(tx.txHash)} target="_blank" rel="noreferrer" className="chash" style={{ color: "var(--em)" }}>tx: {chain.formatAddress(tx.txHash)} ↗</a>}
+                  <div style={{ fontWeight: 600 }}>{tx.desc}</div>
+                  {tx.txHash && (
+                    <a
+                      href={chain.txLink(tx.txHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "var(--em)", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, marginTop: 2 }}
+                    >
+                      🔗 Polygonscan ({chain.formatAddress(tx.txHash)}) ↗
+                    </a>
+                  )}
                 </div>
               </div>
-              <span style={{ fontWeight: 700, color: inc ? "var(--em-dark)" : "var(--red)" }}>{inc ? "+" : "-"}{tx.amount}h</span>
+              <span style={{ fontWeight: 800, fontSize: 14, color: inc ? "var(--em-dark)" : "var(--red)" }}>
+                {inc ? "+" : "-"}{tx.amount}h
+              </span>
             </div>
           );
         })}
       </motion.div>
 
-      {bcRecords.length > 0 && (
-        <motion.div className="card" {...fadeUp(0.3)}>
-          <div className="card-t">Blockchain ledger</div>
-          <div className="ledger">
+      {/* Immutable Blockchain Ledger Feed */}
+      <motion.div className="card" {...fadeUp(0.25)}>
+        <div className="btwn mb1" style={{ alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div className="card-t" style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>⛓️ Immutable Blockchain Ledger (Polygon Amoy)</span>
+              <span className="tag tg" style={{ fontSize: 10, padding: "2px 8px" }}>Live Feed</span>
+            </div>
+            <div className="text-s" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+              Real-time blocks minted and verified on Polygon Amoy testnet. Click any entry to inspect on Polygonscan.
+            </div>
+          </div>
+          <button className="btn btn-o btn-sm" onClick={loadData} style={{ padding: "4px 10px", fontSize: 12 }}>
+            🔄 Refresh
+          </button>
+        </div>
+
+        {bcRecords.length === 0 ? (
+          <div className="text-m" style={{ fontSize: 13, padding: "1rem 0" }}>No blockchain ledger records yet. Complete a service or claim gas to see on-chain blocks!</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {bcRecords.map((r) => (
-              <div key={r._id}>
-                [{r.type}] Block #{r.block} | {chain.formatAddress(r.txHash)} | {r.amount} credits | {chain.formatAddress(r.from)} → {chain.formatAddress(r.to)}
+              <div
+                key={r._id}
+                style={{
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span className={`tag ${r.type === "AICTE_MINT" || r.type === "MINT" ? "tp" : r.type === "GAS_DRIP" ? "ta" : "tg"}`} style={{ fontWeight: 700, fontSize: 11 }}>
+                    {r.type}
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--purple)", fontWeight: 700 }}>
+                    Block #{r.block}
+                  </span>
+                  <span style={{ fontSize: 12.5, color: "#fff", fontWeight: 600 }}>
+                    {r.amount} {r.type === "GAS_DRIP" ? "POL" : "Credits"}
+                  </span>
+                  <span className="text-m" style={{ fontSize: 11.5, fontFamily: "monospace" }}>
+                    {chain.formatAddress(r.from)} → {chain.formatAddress(r.to)}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <a
+                    href={chain.txLink(r.txHash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      color: "var(--em)",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      background: "rgba(0, 194, 122, 0.1)",
+                      border: "1px solid rgba(0, 194, 122, 0.25)",
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      textDecoration: "none",
+                    }}
+                  >
+                    <span>View on Polygonscan</span> ↗
+                  </a>
+                </div>
               </div>
             ))}
           </div>
-        </motion.div>
-      )}
+        )}
+      </motion.div>
     </div>
   );
 }
