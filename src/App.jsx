@@ -2920,6 +2920,24 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
                 : "⛽ Claim 0.05 POL Gas"}
             </button>
           </div>
+
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 12, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ color: "#aaa", display: "flex", alignItems: "center", gap: 6 }}>
+              <span>Need additional Amoy testnet POL?</span>
+              <a href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", textDecoration: "underline" }}>Polygon Official Faucet ↗</a>
+              <span>•</span>
+              <a href="https://www.alchemy.com/faucets/polygon-amoy" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", textDecoration: "underline" }}>Alchemy Faucet ↗</a>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(wallet.address);
+                notify("📋 Wallet address copied to clipboard!");
+              }}
+              style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 4, color: "#ddd", padding: "2px 8px", fontSize: 11, cursor: "pointer" }}
+            >
+              📋 Copy Wallet Address
+            </button>
+          </div>
         </motion.div>
       )}
 
