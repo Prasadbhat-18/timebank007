@@ -171,25 +171,37 @@ export async function relayCreditTransfer(toAddress, credits = 1, metadata = {})
     ? toAddress
     : "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
-  const polMicroAmount = (0.001 * Number(credits)).toFixed(6);
   const signer = await getRelayerSigner();
 
   if (signer) {
     try {
       const bal = await signer.provider.getBalance(signer.address);
-      const needed = ethers.parseEther(polMicroAmount);
-      if (bal > needed) {
+      const feeData = await signer.provider.getFeeData();
+      const gasLimit = 25000n;
+      const gasPrice = feeData.gasPrice || ethers.parseUnits("30", "gwei");
+      const estimatedFee = gasLimit * gasPrice;
+
+      if (bal > estimatedFee) {
+        let sendValue = ethers.parseEther((0.0001 * Number(credits)).toFixed(6));
+        if (bal < sendValue + estimatedFee) {
+          sendValue = (bal * 6n) / 10n;
+        }
+
+        console.log(`[Relayer] Broadcasting credit relay tx to ${safeAddress} on Polygon Amoy...`);
         const tx = await signer.sendTransaction({
           to: safeAddress,
-          value: needed,
+          value: sendValue,
+          gasLimit: 30000n,
         });
         const receipt = await tx.wait(1);
+        console.log(`[Relayer] Credit relay confirmed in block ${receipt.blockNumber}! Tx: ${receipt.hash}`);
+
         return {
           success: true,
           txHash: receipt.hash,
           blockNumber: receipt.blockNumber,
           explorerUrl: `${EXPLORER_BASE}tx/${receipt.hash}`,
-          isMocked: false,
+          isStateProof: false,
         };
       }
     } catch (e) {

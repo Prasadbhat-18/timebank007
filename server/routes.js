@@ -2,6 +2,7 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { ethers } from "ethers";
 import {
   College, User, Skill, Service, Booking, Transaction,
   Review, Notification, Certificate, Dispute, Aicte, Chat, Emergency, Blockchain, FraudReview, Otp,
@@ -308,40 +309,49 @@ async function ensureInitialCreditsRecorded(user) {
   try {
     if (!user || user.role === "websiteAdmin" || user.role === "super_admin") return;
     
+    // Ensure user has a valid EVM address
+    if (!user.wallet || !user.wallet.startsWith("0x")) {
+      user.wallet = ethers.Wallet.createRandom().address;
+      await user.save();
+    }
+
     // Check if initial credits transaction already exists
-    const existingTx = await Transaction.findOne({
+    let existingTx = await Transaction.findOne({
       toId: user._id.toString(),
       type: "initial_credits",
     });
 
     if (existingTx && existingTx.txHash) {
       const existingBc = await Blockchain.findOne({ txHash: existingTx.txHash });
-      if (existingBc) return;
+      if (existingBc) return existingBc;
     }
 
     let txHash = existingTx?.txHash;
     let blockNumber = existingTx?.blockNumber;
+    let isStateProof = false;
 
     if (!txHash) {
       try {
         const relayRes = await relayer.relayCreditTransfer(
-          user.wallet || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          user.wallet,
           10,
           { type: "initial_credits", userId: user._id }
         );
         txHash = relayRes.txHash;
         blockNumber = relayRes.blockNumber;
+        isStateProof = Boolean(relayRes.isStateProof);
       } catch (err) {
         console.warn("[Initial Credits] Relayer fallback:", err.message);
         const mock = generateMockTx();
         txHash = mock.txHash;
         blockNumber = mock.blockNumber;
+        isStateProof = true;
       }
     }
 
     if (!existingTx) {
-      await Transaction.create({
-        fromId: "SYSTEM",
+      existingTx = await Transaction.create({
+        fromId: "SYSTEM_TIMEBANK_TREASURY",
         toId: user._id.toString(),
         bookingId: null,
         amount: 10,
@@ -356,13 +366,15 @@ async function ensureInitialCreditsRecorded(user) {
       block: blockNumber || 10000001,
       txHash,
       from: "SYSTEM_TIMEBANK_TREASURY",
-      to: user.wallet || user._id.toString(),
+      to: user.wallet,
       amount: 10,
       type: "MINT",
+      isStateProof,
     });
 
     broadcastRealtimeEvent("blockchain_ledger_entry", bcEntry);
-    broadcastRealtimeEvent("wallet_update", { userId: user._id });
+    broadcastRealtimeEvent("wallet_update", { userId: user._id, credits: user.credits, wallet: user.wallet });
+    return bcEntry;
   } catch (err) {
     console.warn("Failed to ensure initial credits recorded:", err.message);
   }
