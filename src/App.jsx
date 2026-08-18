@@ -517,7 +517,7 @@ export default function App() {
   };
 
   const pageProps = {
-    user, wallet, skills, users, notify, nav, getU, getSk,
+    user, wallet, setWallet, skills, users, notify, nav, getU, getSk,
     setModal: handleSetModal, refreshUser, connectWallet, doLogout,
     loadSkills, setVerifyCertId,
   };
@@ -2632,19 +2632,43 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet }) {
 }
 
 // ─── WALLET ──────────────────────────────────────────────────────────────────
-function Wallet({ user, wallet, notify, connectWallet }) {
+function Wallet({ user, wallet, setWallet, notify, connectWallet }) {
   const [txs, setTxs] = useState([]);
   const [bcRecords, setBcRecords] = useState([]);
   const [relayerStatus, setRelayerStatus] = useState(null);
   const [claimingGas, setClaimingGas] = useState(false);
+  const [refreshingBal, setRefreshingBal] = useState(false);
   const [gasCountdown, setGasCountdown] = useState(0);
-  const [livePolBalance, setLivePolBalance] = useState(wallet ? parseFloat(wallet.balance).toFixed(4) : "0.0000");
+  const [livePolBalance, setLivePolBalance] = useState(wallet?.balance ? parseFloat(wallet.balance).toFixed(4) : "0.0000");
+
+  const syncOnChainBalance = useCallback(async () => {
+    if (!wallet?.address) return;
+    setRefreshingBal(true);
+    try {
+      let bal = "0.0";
+      if (wallet.provider) {
+        bal = await chain.getBalance(wallet.provider, wallet.address);
+      } else {
+        const tempProvider = new ethers.JsonRpcProvider("https://polygon-amoy-bor-rpc.publicnode.com", 80002);
+        bal = await chain.getBalance(tempProvider, wallet.address);
+      }
+      const formatted = parseFloat(bal || 0).toFixed(4);
+      setLivePolBalance(formatted);
+      if (setWallet) {
+        setWallet((prev) => prev ? ({ ...prev, balance: formatted }) : prev);
+      }
+    } catch (e) {
+      console.warn("Sync balance error:", e);
+    } finally {
+      setRefreshingBal(false);
+    }
+  }, [wallet, setWallet]);
 
   useEffect(() => {
-    if (wallet) {
+    if (wallet?.balance !== undefined) {
       setLivePolBalance(parseFloat(wallet.balance).toFixed(4));
     }
-  }, [wallet]);
+  }, [wallet?.balance]);
 
   useEffect(() => {
     let timer;
@@ -2662,7 +2686,8 @@ function Wallet({ user, wallet, notify, connectWallet }) {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    syncOnChainBalance();
+  }, [loadData, syncOnChainBalance]);
 
   // Handle Real-Time 1-Click Gas Claim
   const handleClaimGas = async () => {
@@ -2674,18 +2699,19 @@ function Wallet({ user, wallet, notify, connectWallet }) {
     try {
       const res = await api.dripGas(wallet.address);
       setGasCountdown(90);
-      notify(`⛽ 0.05 POL testnet gas dispatched! Tx: ${res.txHash.slice(0, 12)}...`);
       
-      // Update balance in real-time
-      if (wallet.provider) {
-        chain.getBalance(wallet.provider, wallet.address).then((bal) => {
-          setLivePolBalance(parseFloat(bal).toFixed(4));
-        }).catch(() => {
-          setLivePolBalance((prev) => (parseFloat(prev) + 0.05).toFixed(4));
-        });
-      } else {
-        setLivePolBalance((prev) => (parseFloat(prev) + 0.05).toFixed(4));
+      // Optimistic instant balance update
+      const newBal = (parseFloat(livePolBalance || 0) + 0.05).toFixed(4);
+      setLivePolBalance(newBal);
+      if (setWallet) {
+        setWallet((prev) => prev ? ({ ...prev, balance: newBal }) : prev);
       }
+
+      notify(`⛽ +0.05 POL testnet gas dispatched! Tx: ${res.txHash.slice(0, 12)}...`);
+      
+      // Background re-poll on-chain balance after 2s and 5s to confirm on-chain state
+      setTimeout(() => syncOnChainBalance(), 2000);
+      setTimeout(() => syncOnChainBalance(), 5000);
 
       loadData();
     } catch (e) {
@@ -2736,7 +2762,22 @@ function Wallet({ user, wallet, notify, connectWallet }) {
         {wallet ? (
           <>
             <div style={{ fontSize: 11, fontFamily: "monospace", opacity: 0.6, wordBreak: "break-all" }}>{wallet.address}</div>
-            <div className="btwn mt1"><span style={{ fontSize: 13 }}>POL balance</span><span style={{ fontWeight: 700 }}>{livePolBalance} POL</span></div>
+            <div className="btwn mt1" style={{ alignItems: "center" }}>
+              <span style={{ fontSize: 13 }}>POL balance</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: parseFloat(livePolBalance) > 0 ? "var(--em)" : "#fff" }}>
+                  {livePolBalance} POL
+                </span>
+                <button
+                  onClick={syncOnChainBalance}
+                  disabled={refreshingBal}
+                  style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 4, color: "#ccc", padding: "2px 6px", fontSize: 11, cursor: "pointer" }}
+                  title="Refresh live on-chain balance"
+                >
+                  {refreshingBal ? "..." : "🔄"}
+                </button>
+              </div>
+            </div>
             <a href={chain.addressLink(wallet.address)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#34d399", display: "inline-block", marginTop: 4 }}>View on Polygonscan ↗</a>
           </>
         ) : (
