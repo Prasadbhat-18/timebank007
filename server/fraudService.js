@@ -111,6 +111,7 @@ export async function checkDuplicateRegistration({
         riskScore,
         reasons,
         matchedUserId: bestMatch._id,
+        matchedEmail: bestMatch.email,
         matchDistance: bestDistance,
       };
     }
@@ -122,6 +123,7 @@ export async function checkDuplicateRegistration({
     riskScore,
     reasons,
     matchedUserId: bestMatch ? bestMatch._id : null,
+    matchedEmail: bestMatch ? bestMatch.email : null,
     matchDistance: bestDistance === Infinity ? null : bestDistance,
   };
 }

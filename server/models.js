@@ -100,6 +100,17 @@ const userSchema = new Schema({
   reviewedAt:         { type: Date, default: null },
   rejectionReason:    { type: String, default: "" },
 
+  // ── College Admin Student Approval ──
+  // 'pending' = awaiting college admin review; 'approved' = cleared to use app; 'rejected' = denied
+  approvalStatus:     { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
+  approvalNote:       { type: String, default: "" },
+  approvedBy:         { type: Schema.Types.ObjectId, ref: "User", default: null },
+  approvedAt:         { type: Date, default: null },
+
+  // ── ID Card Upload ──
+  idCardImage:        { type: String, default: "" },  // base64 data URI of college ID card
+  idCardUploadedAt:   { type: Date, default: null },
+
   // ── Alumni & Graduate Transition ──
   isAlumni:           { type: Boolean, default: false },
   graduatedAt:        { type: Date, default: null },

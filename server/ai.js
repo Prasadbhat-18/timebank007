@@ -58,120 +58,139 @@ Example: ["id1", "id2", "id3"]
 }
 
 /**
- * Fast intelligent heuristic verification fallback
- */
-function fastHeuristicVerify(studentName, eventName, hasValidData, isPdf) {
-  const sName = (studentName || "Student").trim();
-  const eName = (eventName || "AICTE Activity").trim();
-  
-  if (!hasValidData) {
-    return {
-      score: 75,
-      feedback: `Certificate URL verified. Document references ${eName} for ${sName}. Recommended for admin approval.`,
-    };
-  }
-
-  const docType = isPdf ? "PDF Document" : "Certificate Image";
-  return {
-    score: 92,
-    feedback: `✓ ${docType} verified. Legitimate certificate layout confirmed for student "${sName}" participating in "${eName}". Verified genuine.`,
-  };
-}
-
-/**
- * Verify an AICTE certificate image or PDF using AI OCR with ultra-fast fallback
+ * Verify an AICTE certificate image or PDF using Gemini AI with robust multi-model fallback and strict anti-fraud rules
  * @param {string} certData - The base64 data URL or web link of the certificate
  * @param {string} studentName - The expected student name
  * @param {string} eventName - The expected event name
- * @returns {Object} - { score: number, feedback: string }
+ * @returns {Promise<{ score: number, feedback: string }>}
  */
 export async function verifyAicteCertificate(certData, studentName = "", eventName = "") {
   if (!certData) {
-    return { score: 0, feedback: "No certificate file or URL provided." };
+    return {
+      score: 0,
+      feedback: "❌ No certificate file provided. Verification failed.",
+    };
   }
 
   // Handle plain URL links (e.g. Google Drive, web links)
   if (certData.startsWith("http://") || certData.startsWith("https://")) {
-    return fastHeuristicVerify(studentName, eventName, false, false);
+    return {
+      score: 45,
+      feedback: `⚠️ External URL link provided (${certData.slice(0, 35)}...). Direct file upload required for AI OCR analysis. Queued for manual admin review.`,
+    };
   }
 
-  // Parse base64 data URI (supports images and PDFs)
+  // Parse base64 data URI (supports PNG, JPEG, WEBP, PDF)
   const matches = certData.match(/^data:([a-zA-Z0-9/+-]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
-    return fastHeuristicVerify(studentName, eventName, false, false);
+    return {
+      score: 0,
+      feedback: "❌ Invalid certificate file format. Please upload a clear JPG, PNG, or PDF file.",
+    };
   }
 
   const mimeType = matches[1].toLowerCase();
   const data = matches[2];
   const isPdf = mimeType === "application/pdf";
+  const sName = (studentName || "Student").trim();
+  const eName = (eventName || "AICTE Activity").trim();
 
-  // If Gemini AI is configured, run with strict 3.5s timeout race
+  // If Gemini AI is configured, run real multimodal analysis
   if (ai) {
-    try {
-      const prompt = `
-You are an expert academic document and certificate verifier for AICTE activity accreditation.
-Analyze this ${isPdf ? "PDF certificate" : "certificate image"} carefully.
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"];
+    const prompt = `You are a strict, authoritative AI Certificate & Academic Credential Auditor for the AICTE (All India Council for Technical Education) Activity Point Accreditation System.
 
-Expected Student Name: ${studentName || "Student"}
-Expected Activity / Event: ${eventName || "AICTE Activity"}
+Analyze this ${isPdf ? "PDF certificate document" : "uploaded certificate image"} with high scrutiny.
 
-Tasks:
-1. Confirm if this is a genuine certificate (look for header, institution name, signatures, date).
-2. Check if student name corresponds with "${studentName}".
-3. Check if activity / event topic corresponds with "${eventName}".
+Expected Student Legal Name: "${sName}"
+Expected Event / Activity Topic: "${eName}"
 
-Respond ONLY with a valid JSON object:
+AUDIT RULES:
+1. Genuine Certificate Check: Is this a legitimate academic/technical certificate (e.g. Workshop, Hackathon, FDP, Internship, Course, Technical Paper, College Competition)? Look for:
+   - Certificate Title ("Certificate of Completion / Participation / Merit / Appreciation / Achievement")
+   - Issuing Organization / Institution / College Name & Logo
+   - Candidate Name
+   - Signatures, Official Seals, Authority Designations, or Verification IDs/QR
+2. Strict Non-Certificate Rejection: If the image is NOT a certificate (for example: photo of a person/selfie, landscape, screenshot of IDE/code, wallpaper, invoice, meme, game screenshot, blank screen, receipt, drawing, or irrelevant document), you MUST REJECT with score between 0 and 10.
+3. Name Verification: Check if the certificate explicitly contains the candidate name "${sName}" or a very close variant. If it is made out to a completely different person, score MUST NOT exceed 25.
+4. Activity / Topic Match: Check if the certificate covers "${eName}" or related technical subject matter.
+
+SCORING MATRIX:
+- 0 - 15: FAKE / NOT A CERTIFICATE (random picture, selfie, screenshot, meme, fraud).
+- 16 - 40: Irrelevant document, completely mismatched student name, or generic non-accredited receipt.
+- 41 - 69: Real certificate, but noticeable discrepancy in recipient name or event topic.
+- 70 - 100: Genuine authentic AICTE/academic certificate with verified recipient name "${sName}", issuing authority, and valid activity details.
+
+Respond ONLY in valid, parseable JSON with NO markdown fences or preamble:
 {
-  "score": <number between 70 and 98>,
-  "feedback": "<concise 1-2 sentence verification report>"
-}
-`;
+  "isCertificate": boolean,
+  "score": number,
+  "recipientName": string or null,
+  "issuingAuthority": string or null,
+  "eventTitle": string or null,
+  "feedback": string
+}`;
 
-      const aiPromise = (async () => {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: [
-            {
-              inlineData: {
-                data: data,
-                mimeType: mimeType,
+    for (const model of modelsToTry) {
+      try {
+        const aiPromise = (async () => {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [
+              {
+                inlineData: {
+                  data,
+                  mimeType,
+                },
               },
+              prompt,
+            ],
+            config: {
+              temperature: 0.1,
             },
-            prompt,
-          ],
-          config: {
-            temperature: 0.1,
-          },
-        });
+          });
 
-        let text = response.text?.trim() || "";
-        if (text.startsWith("```json")) {
-          text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-        } else if (text.startsWith("```")) {
-          text = text.replace(/```/g, "").trim();
-        }
+          let text = response.text?.trim() || "";
+          if (text.startsWith("```json")) {
+            text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+          } else if (text.startsWith("```")) {
+            text = text.replace(/```/g, "").trim();
+          }
 
-        const parsed = JSON.parse(text);
-        return {
-          score: Math.min(100, Math.max(0, parseInt(parsed.score || "90", 10))),
-          feedback: parsed.feedback || `Verified certificate for ${studentName} — ${eventName}`,
-        };
-      })();
+          const parsed = JSON.parse(text);
+          const score = Math.min(100, Math.max(0, parseInt(parsed.score, 10) || 0));
 
-      // Race with 3.5s timeout so admin verification is always snappy
-      const result = await Promise.race([
-        aiPromise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error("AI Timeout")), 3500)),
-      ]);
+          let feedback = parsed.feedback;
+          if (!feedback) {
+            if (score >= 75) {
+              feedback = `✓ Authentic certificate confirmed. Issued to "${parsed.recipientName || sName}" for "${parsed.eventTitle || eName}" by "${parsed.issuingAuthority || 'Accredited Institution'}".`;
+            } else if (score >= 40) {
+              feedback = `⚠️ Certificate detected with minor discrepancies: Recipient "${parsed.recipientName || 'Unclear'}", Event "${parsed.eventTitle || 'Unclear'}". Manual admin review recommended.`;
+            } else {
+              feedback = `❌ Verification rejected (${score}% score). Document does not meet AICTE accreditation criteria or is not a genuine certificate.`;
+            }
+          }
 
-      return result;
-    } catch (err) {
-      console.warn("  ℹ️ AI OCR fast fallback invoked:", err.message);
+          return { score, feedback };
+        })();
+
+        const result = await Promise.race([
+          aiPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("AI Model Timeout")), 12000)),
+        ]);
+
+        return result;
+      } catch (err) {
+        console.warn(`[AICTE Certificate OCR] Attempt with model ${model} failed:`, err.message);
+      }
     }
   }
 
-  // Fast smart heuristic analyzer (runs in < 15ms)
-  return fastHeuristicVerify(studentName, eventName, true, isPdf);
+  // Offline fallback if Gemini is completely unavailable
+  return {
+    score: 35,
+    feedback: "⚠️ AI service temporarily unreachable. Document flagged for manual college administrator inspection.",
+  };
 }
 
 /**

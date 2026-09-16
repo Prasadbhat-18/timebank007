@@ -1,4 +1,4 @@
-// ─── TimeBank — Express + Socket.io Server ──────────────────────────────────
+import "dotenv/config";
 import dns from "dns";
 try { dns.setDefaultResultOrder?.("ipv4first"); } catch (e) {}
 import express from "express";
@@ -7,11 +7,8 @@ import { Server } from "socket.io";
 import mongoose from "mongoose";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
-import dotenv from "dotenv";
 import { initSocket, getIO } from "./sockets.js";
 import routes, { seedSkills, seedAdmin, seedColleges } from "./routes.js";
-
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
@@ -37,6 +34,18 @@ app.use("/api/auth", authLimiter);
 
 // API routes — all prefixed with /api
 app.use("/api", routes);
+
+// Global JSON error handler to prevent HTML error responses
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    return res.status(400).json({ error: "Malformed JSON payload in request." });
+  }
+  if (err) {
+    console.error("Express Error:", err);
+    return res.status(err.status || 500).json({ error: err.message || "Internal server error" });
+  }
+  next();
+});
 
 // Root route
 app.get("/", (_req, res) => {

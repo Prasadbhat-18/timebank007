@@ -9,25 +9,37 @@ async function req(path, opts = {}) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${BASE}${path}`, {
-    cache: "no-store",
-    headers,
-    ...opts,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      cache: "no-store",
+      headers,
+      ...opts,
+    });
+  } catch (netErr) {
+    throw new Error("Unable to connect to backend server. Please ensure the server is running.");
+  }
+
   const text = await res.text();
   let data = {};
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = { error: text || `Server error (${res.status})` };
+      data = {
+        error: text.trim().startsWith("<")
+          ? `Server error (${res.status}): Backend service is starting up or temporarily unavailable.`
+          : (text.slice(0, 200) || `Server error (${res.status})`),
+      };
     }
   }
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
   return data;
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
+export const fetchMe = () => req("/auth/me");
+
 export const login = (email, password, faceDescriptor, deviceFingerprint) =>
   req("/auth/login", { method: "POST", body: JSON.stringify({ email, password, faceDescriptor, deviceFingerprint }) });
 
@@ -43,8 +55,8 @@ export const registerGeneral = (data) =>
 export const sendOtp = (email, type = "login") =>
   req("/auth/send-otp", { method: "POST", body: JSON.stringify({ email, type }) });
 
-export const verifyOtp = (email, otp, deviceFingerprint) =>
-  req("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp, deviceFingerprint }) });
+export const verifyOtp = (email, otp, deviceFingerprint, faceDescriptor) =>
+  req("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp, deviceFingerprint, faceDescriptor }) });
 
 export const magicLogin = (token) =>
   req(`/auth/magic-login/${token}`);
@@ -154,8 +166,7 @@ export const issueAicteCertificate = (periodStart, periodEnd) =>
 export const getCertificateDownloadUrl = (certId) =>
   `${BASE}/aicte/certificate/${certId}/download`;
 export const verifyCertificatePublic = async (certId) => {
-  const res = await fetch(`${BASE}/aicte/verify/${certId}`);
-  return res.json();
+  return req(`/aicte/verify/${certId}`);
 };
 export const fetchUserCertificates = (userId) =>
   req(`/aicte/certificates/user/${userId}`);
@@ -226,6 +237,8 @@ export const fetchFaucetStatus = () =>
   }));
 export const dripGas = (address) =>
   req("/faucet/drip", { method: "POST", body: JSON.stringify({ address }) });
+export const syncOnChainGas = () =>
+  req("/faucet/sync-onchain", { method: "POST" });
 export const relayTransfer = (data) =>
   req("/blockchain/relay-transfer", { method: "POST", body: JSON.stringify(data) });
 
@@ -244,3 +257,11 @@ export const resolveFraudItem = (prefix, id, action, note) =>
 export const fetchFlaggedAccounts = () => req("/admin/flagged-accounts");
 export const verifyUserAdmin = (userId, decision, reason) =>
   req(`/admin/verify/${userId}`, { method: "POST", body: JSON.stringify({ decision, reason }) });
+
+// ─── Student Approval Flow ────────────────────────────────────────────────────
+export const checkApprovalStatus = (userId) => req(`/auth/approval-status/${userId}`);
+export const fetchPendingStudents = () => req("/college-admin/pending-students");
+export const fetchAllStudents = () => req("/college-admin/all-students");
+export const approveStudent = (userId, decision, note = "") =>
+  req(`/college-admin/approve-student/${userId}`, { method: "POST", body: JSON.stringify({ decision, note }) });
+

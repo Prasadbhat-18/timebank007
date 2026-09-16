@@ -182,3 +182,7 @@ export function txLink(txHash) {
 export function addressLink(addr) {
   return `${EXPLORER_URL}address/${addr}`;
 }
+
+export function blockLink(blockNum) {
+  return `${EXPLORER_URL}block/${blockNum}`;
+}

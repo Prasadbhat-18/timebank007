@@ -1,4 +1,5 @@
-// ─── TimeBank — Production Email Service (Direct MX & Zero-Config Delivery) ──────
+// ─── TimeBank — Production Email Service ─────────────────────────────────────
+import "dotenv/config";
 import nodemailer from "nodemailer";
 import dns from "dns";
 
@@ -7,97 +8,64 @@ try {
   dns.setDefaultResultOrder("ipv4first");
 } catch (e) {}
 
+let smtpTransporter = null;
 let fallbackTransporter = null;
 
-function initSmtpTransporter() {
-  if (fallbackTransporter) return fallbackTransporter;
+function getSmtpTransporter() {
+  if (smtpTransporter) return smtpTransporter;
   const host = process.env.SMTP_HOST || "smtp.gmail.com";
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const port = parseInt(process.env.SMTP_PORT || "587", 10);
 
   if (user && pass) {
     const cleanPass = pass.replace(/\s+/g, "");
-    fallbackTransporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass: cleanPass },
-      tls: { rejectUnauthorized: false },
-      connectionTimeout: 5000,
-    });
+    if (host.includes("gmail") || user.toLowerCase().endsWith("@gmail.com")) {
+      smtpTransporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user, pass: cleanPass },
+        connectionTimeout: 10000,
+        greetingTimeout: 5000,
+        socketTimeout: 15000,
+      });
+    } else {
+      const port = parseInt(process.env.SMTP_PORT || "587", 10);
+      smtpTransporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass: cleanPass },
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 10000,
+        greetingTimeout: 5000,
+        socketTimeout: 15000,
+      });
+    }
   }
-  return fallbackTransporter;
-}
-
-// Pre-initialize immediately on startup
-try {
-  initSmtpTransporter();
-} catch (e) {}
-
-/**
- * Resolves the destination domain's Mail Exchange (MX) records
- * and creates a direct SMTP transport directly to the recipient's mail server.
- * No email username or password is required!
- */
-async function getDirectMxTransporter(domain) {
-  try {
-    const records = await dns.promises.resolveMx(domain);
-    if (!records || records.length === 0) return null;
-    records.sort((a, b) => a.priority - b.priority);
-    const targetMx = records[0].exchange;
-
-    console.log(`  ✓ Resolved MX for ${domain} -> ${targetMx}`);
-    return nodemailer.createTransport({
-      host: targetMx,
-      port: 25,
-      secure: false,
-      tls: {
-        rejectUnauthorized: false,
-      },
-      connectionTimeout: 4000,
-      greetingTimeout: 4000,
-      socketTimeout: 5000,
-    });
-  } catch (err) {
-    console.warn(`  ⚠️ Direct MX lookup failed for ${domain}:`, err.message);
-    return null;
-  }
+  return smtpTransporter;
 }
 
 /**
- * Initializes or retrieves the fallback transporter
+ * Ethereal test fallback (for when SMTP creds are missing/wrong)
  */
 async function getFallbackTransporter() {
   if (fallbackTransporter) return fallbackTransporter;
-  initSmtpTransporter();
-  if (fallbackTransporter) return fallbackTransporter;
-
   try {
     const testAccount = await nodemailer.createTestAccount();
     fallbackTransporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
       port: 587,
       secure: false,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
-      },
+      auth: { user: testAccount.user, pass: testAccount.pass },
     });
-    console.log("  ✓ Zero-Config Email Gateway ready (Instant delivery + live web preview)");
+    console.log("  ✓ Ethereal fallback email gateway ready");
   } catch (e) {
-    fallbackTransporter = nodemailer.createTransport({
-      sendmail: true,
-      newline: "unix",
-      path: "/usr/sbin/sendmail",
-    });
+    console.warn("  ⚠️ Could not create Ethereal test account:", e.message);
   }
-
   return fallbackTransporter;
 }
 
 /**
- * Dispatches real OTP and 1-click magic login link email to user's college or personal email inbox
+ * Dispatches OTP email to user's inbox via configured SMTP (Gmail)
  */
 export async function sendOtpEmail({ to, code, magicToken, collegeName = "TimeBank", type = "login" }) {
   const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
@@ -182,76 +150,58 @@ If you did not request this verification code, you can safely ignore this email.
 </html>
 `;
 
-  const domain = (to.split("@")[1] || "").toLowerCase().trim();
-
   const hasConfiguredSmtp = Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
-  let mailer = null;
-  let info = null;
 
+  // 1. Try real configured SMTP (Gmail) first — fast path
   if (hasConfiguredSmtp) {
-    mailer = await getFallbackTransporter();
-  } else {
-    mailer = await getDirectMxTransporter(domain);
-  }
-
-  if (mailer) {
-    try {
-      info = await mailer.sendMail({
-        from: fromAddress,
-        to,
-        subject,
-        text: textContent,
-        html: htmlContent,
-      });
-
-      const previewUrl = nodemailer.getTestMessageUrl(info);
-      console.log(`\n📧 [EMAIL DISPATCHED TO ${to}] Message ID: ${info.messageId}\n`);
-      return {
-        success: true,
-        deliveryType: hasConfiguredSmtp ? "smtp" : "direct_mx",
-        messageId: info.messageId,
-        previewUrl: previewUrl || null,
-      };
-    } catch (err) {
-      if (hasConfiguredSmtp) {
-        console.error(`Failed to dispatch email to ${to}:`, err);
-        if (err.message && (err.message.includes("535") || err.message.includes("BadCredentials"))) {
-          throw new Error("Gmail authentication failed: Google requires a 16-character App Password (not your regular email password). Visit https://myaccount.google.com/apppasswords to generate an App Password and set it as SMTP_PASS.");
-        }
-        throw new Error(`Failed to dispatch email to ${to}: ${err.message}`);
+    const smtpMailer = getSmtpTransporter();
+    if (smtpMailer) {
+      try {
+        const info = await smtpMailer.sendMail({
+          from: fromAddress,
+          to,
+          subject,
+          text: textContent,
+          html: htmlContent,
+        });
+        console.log(`\n📧 [SMTP EMAIL SENT TO ${to}] Message ID: ${info.messageId}\n`);
+        return {
+          success: true,
+          deliveryType: "smtp",
+          messageId: info.messageId,
+          previewUrl: null,
+        };
+      } catch (err) {
+        console.error(`⚠️ SMTP delivery failed for ${to}:`, err.message);
       }
-      console.warn(`  ⚠️ Direct MX delivery failed (${err.message}). Switching to fallback...`);
     }
   }
 
-  // Fallback Gateway if Direct MX was attempted and failed
-  mailer = await getFallbackTransporter();
+  // 2. Ethereal fallback (preview only — not real delivery to inbox)
+  const fallbackMailer = await getFallbackTransporter();
+  if (!fallbackMailer) {
+    throw new Error(`SMTP not configured and fallback unavailable. Could not send email to ${to}.`);
+  }
   try {
-    info = await mailer.sendMail({
+    const info = await fallbackMailer.sendMail({
       from: fromAddress,
       to,
       subject,
       text: textContent,
       html: htmlContent,
     });
-
     const previewUrl = nodemailer.getTestMessageUrl(info);
     if (previewUrl) {
-      console.log(`\n📧 [EMAIL DISPATCHED TO ${to}]`);
-      console.log(`   Preview Inbox Link: ${previewUrl}`);
-      console.log(`   Message ID: ${info.messageId}\n`);
-    } else {
-      console.log(`\n📧 [EMAIL DISPATCHED TO ${to}] Message ID: ${info.messageId}\n`);
+      console.log(`\n📧 [ETHEREAL PREVIEW — NOT REAL DELIVERY for ${to}]`);
+      console.log(`   Preview: ${previewUrl}\n`);
     }
-
     return {
       success: true,
-      deliveryType: "gateway",
+      deliveryType: "ethereal",
       messageId: info.messageId,
       previewUrl: previewUrl || null,
     };
   } catch (err) {
-    console.error(`Failed to dispatch email to ${to}:`, err);
     throw new Error(`Failed to dispatch email to ${to}: ${err.message}`);
   }
 }

@@ -1,22 +1,26 @@
-// ─── FaceVerification — Cross-device face capture component ──────────────────
-// Works on desktop (webcam), mobile (front camera), and fallback (photo upload)
+// ─── FaceVerification — Professional Real-Time Face Scan ──────────────────────
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as faceapi from "face-api.js";
 
 const MODEL_URL = "/models";
 
-export default function FaceVerification({ onCaptured }) {
+export default function FaceVerification({ onCaptured, mode = "capture" }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const overlayRef = useRef(null);
   const fileRef = useRef(null);
+  const streamRef = useRef(null);
+  const detectionLoopRef = useRef(null);
+  const stableCountRef = useRef(0);
+  const autoCaptureFiredRef = useRef(false);
+
   const [ready, setReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [status, setStatus] = useState("idle"); // idle | loading | scanning | captured | error | no-camera
+  const [status, setStatus] = useState("idle"); // idle | loading | scanning | face_detected | capturing | captured | error
   const [error, setError] = useState("");
-  const [hasCamera, setHasCamera] = useState(true);
-  const streamRef = useRef(null);
+  const [faceBox, setFaceBox] = useState(null); // { x, y, w, h } normalized 0-1
 
-  // Load face-api models on mount
+  // ── Load face-api models ──────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -37,173 +41,304 @@ export default function FaceVerification({ onCaptured }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Start camera only after user explicitly clicks "Open Camera"
-  const startCamera = async () => {
-    setError("");
-    setStatus("loading");
-    try {
-      const constraints = {
-        video: {
-          facingMode: "user",
-          width: { ideal: 480 },
-          height: { ideal: 360 },
-        },
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setCameraActive(true);
-      setStatus("idle");
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 100);
-    } catch (err) {
-      setHasCamera(false);
-      setCameraActive(false);
-      setStatus("no-camera");
-      setError("Camera permission denied or camera unavailable. Please upload a photo instead.");
+  // ── Stop camera + loops ───────────────────────────────────────────────────
+  const stopCamera = useCallback(() => {
+    if (detectionLoopRef.current) {
+      clearInterval(detectionLoopRef.current);
+      detectionLoopRef.current = null;
     }
-  };
-
-  const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     setCameraActive(false);
-  };
+    setFaceBox(null);
+  }, []);
 
-  // Cleanup stream on unmount
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  // ── Draw real-time overlay onto canvas ────────────────────────────────────
+  const drawOverlay = useCallback((detection, videoEl, canvasEl) => {
+    if (!canvasEl || !videoEl) return;
+    const displaySize = { width: videoEl.videoWidth, height: videoEl.videoHeight };
+    if (!displaySize.width) return;
+    faceapi.matchDimensions(canvasEl, displaySize);
+
+    const ctx = canvasEl.getContext("2d");
+    ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+    if (!detection) {
+      setFaceBox(null);
+      return;
+    }
+
+    const resized = faceapi.resizeResults(detection, displaySize);
+    const box = resized.detection.box;
+
+    // Normalize to 0-1 for CSS positioning
+    setFaceBox({
+      x: box.x / displaySize.width,
+      y: box.y / displaySize.height,
+      w: box.width / displaySize.width,
+      h: box.height / displaySize.height,
+    });
+
+    // Draw landmark dots
+    if (resized.landmarks) {
+      const pts = resized.landmarks.positions;
+      ctx.fillStyle = "rgba(16, 185, 129, 0.85)";
+      pts.forEach((pt) => {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw landmark connections (eyes, nose bridge, jaw)
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.35)";
+      ctx.lineWidth = 1;
+      const drawPath = (indices) => {
+        ctx.beginPath();
+        indices.forEach((i, j) => {
+          const p = pts[i];
+          if (j === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+      };
+      // Jaw
+      drawPath([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]);
+      // Left eyebrow
+      drawPath([17,18,19,20,21]);
+      // Right eyebrow
+      drawPath([22,23,24,25,26]);
+      // Nose bridge
+      drawPath([27,28,29,30]);
+      // Nose base
+      drawPath([31,32,33,34,35]);
+      // Left eye
+      drawPath([36,37,38,39,40,41,36]);
+      // Right eye
+      drawPath([42,43,44,45,46,47,42]);
+      // Outer lips
+      drawPath([48,49,50,51,52,53,54,55,56,57,58,59,48]);
+    }
+  }, []);
+
+  // ── Real-time detection loop ───────────────────────────────────────────────
+  const startDetectionLoop = useCallback(() => {
+    if (detectionLoopRef.current) clearInterval(detectionLoopRef.current);
+    stableCountRef.current = 0;
+    autoCaptureFiredRef.current = false;
+
+    detectionLoopRef.current = setInterval(async () => {
+      const video = videoRef.current;
+      const canvas = overlayRef.current;
+      if (!video || !ready || video.readyState < 2) return;
+
+      try {
+        const detection = await faceapi
+          .detectSingleFace(video)
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        drawOverlay(detection, video, canvas);
+
+        if (detection) {
+          stableCountRef.current++;
+          setStatus("face_detected");
+
+          // Auto-capture after face stable for 3 ticks (~1.5s)
+          if (stableCountRef.current >= 3 && !autoCaptureFiredRef.current) {
+            autoCaptureFiredRef.current = true;
+            setStatus("capturing");
+            clearInterval(detectionLoopRef.current);
+            detectionLoopRef.current = null;
+            stopCamera();
+            onCaptured(Array.from(detection.descriptor));
+            setStatus("captured");
+          }
+        } else {
+          stableCountRef.current = 0;
+          if (status !== "face_detected") setStatus("scanning");
+        }
+      } catch (e) {
+        // silently continue
       }
-    };
-  }, []);
+    }, 500);
+  }, [ready, drawOverlay, stopCamera, onCaptured, status]);
 
-  // Detect face from a video or image element
-  const detectFace = useCallback(async (input) => {
-    const detection = await faceapi
-      .detectSingleFace(input)
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-    return detection;
-  }, []);
-
-  // Capture from webcam
-  const captureFromCamera = useCallback(async () => {
-    if (!videoRef.current) return;
-    setStatus("scanning");
+  // ── Start camera ──────────────────────────────────────────────────────────
+  const startCamera = useCallback(async () => {
     setError("");
-
+    setStatus("loading");
     try {
-      const detection = await detectFace(videoRef.current);
-      if (!detection) {
-        setStatus("error");
-        setError("No face detected — please look directly into the camera in good lighting.");
-        return;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+      setStatus("scanning");
+      // Attach stream to video
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => startDetectionLoop();
       }
-      setStatus("captured");
-      stopCamera();
-      onCaptured(Array.from(detection.descriptor));
     } catch {
       setStatus("error");
-      setError("Face detection failed. Please try again.");
+      setError("Camera permission denied or unavailable. Please upload a selfie photo.");
     }
-  }, [detectFace, onCaptured]);
+  }, [startDetectionLoop]);
 
-  // Capture from uploaded photo
+  // ── Capture from uploaded photo ───────────────────────────────────────────
   const captureFromPhoto = useCallback(async (file) => {
     if (!file) return;
     setStatus("scanning");
     setError("");
-
     try {
       const img = await faceapi.bufferToImage(file);
-
-      // Draw image onto a canvas so face-api can process it
       const canvas = canvasRef.current;
       if (!canvas) return;
       canvas.width = img.width;
       canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-
-      const detection = await detectFace(canvas);
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      const detection = await faceapi.detectSingleFace(canvas).withFaceLandmarks().withFaceDescriptor();
       if (!detection) {
         setStatus("error");
-        setError("No face detected in the photo. Please upload a clear selfie.");
+        setError("No face detected in the photo. Please upload a clear, well-lit selfie.");
         return;
       }
       setStatus("captured");
-      stopCamera();
       onCaptured(Array.from(detection.descriptor));
     } catch {
       setStatus("error");
-      setError("Could not process the photo. Try a different image.");
+      setError("Could not process the photo. Please try a different image.");
     }
-  }, [detectFace, onCaptured]);
+  }, [onCaptured]);
 
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) captureFromPhoto(file);
+  const statusConfig = {
+    idle: { color: "#64748b", text: "Click below to start face scan" },
+    loading: { color: "#64748b", text: "Accessing camera…" },
+    scanning: { color: "#f59e0b", text: "Scanning… Center your face in the frame" },
+    face_detected: { color: "#10b981", text: "Face detected — hold still…" },
+    capturing: { color: "#10b981", text: "Capturing biometrics…" },
+    captured: { color: "#10b981", text: "Biometric profile enrolled ✓" },
+    error: { color: "#ef4444", text: error },
   };
-
-  const statusColors = {
-    idle: "var(--text-secondary)",
-    loading: "var(--text-secondary)",
-    scanning: "#f59e0b",
-    captured: "#10b981",
-    error: "#ef4444",
-    "no-camera": "var(--text-secondary)",
-  };
-
-  const statusText = {
-    idle: cameraActive ? "Position your face in the frame and click Capture" : "Click below to enable camera or upload a photo",
-    loading: "Accessing camera…",
-    scanning: "Scanning face biometrics…",
-    captured: "Face biometric profile enrolled successfully ✓",
-    error: error,
-    "no-camera": "Camera not available — please upload a selfie photo",
-  };
+  const sc = statusConfig[status] || statusConfig.idle;
 
   return (
-    <div className="face-verify-wrap" style={{ background: "rgba(0, 0, 0, 0.25)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: 14, padding: "14px 16px" }}>
-      <div className="face-verify-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, color: "#fff" }}>
-          <span>🔐</span>
-          <span>Live Face Verification</span>
+    <div style={{
+      background: "rgba(0,0,0,0.3)",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 16,
+      padding: "16px",
+      position: "relative",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: "50%",
+            background: status === "captured" ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)",
+            border: `1px solid ${status === "captured" ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.1)"}`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13,
+          }}>
+            {status === "captured" ? "✓" : "🔐"}
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>Biometric Face Scan</span>
         </div>
-        <span className="face-verify-badge" style={{ fontSize: 11, background: status === "captured" ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.08)", color: status === "captured" ? "var(--em)" : "var(--text-muted)", padding: "2px 8px", borderRadius: 6, fontWeight: 600 }}>
-          {status === "captured" ? "Enrolled ✓" : "Mandatory"}
+        <span style={{
+          fontSize: 10.5, fontWeight: 700,
+          background: status === "captured" ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.06)",
+          color: status === "captured" ? "#10b981" : "#94a3b8",
+          padding: "3px 10px", borderRadius: 20, textTransform: "uppercase", letterSpacing: "0.5px",
+        }}>
+          {status === "captured" ? "Enrolled" : "Required"}
         </span>
       </div>
 
-      {/* Active Camera view */}
+      {/* Camera view */}
       {cameraActive && (
-        <div className="face-verify-video-wrap" style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: "#000", marginBottom: 12 }}>
+        <div style={{
+          position: "relative", borderRadius: 12, overflow: "hidden",
+          background: "#000", marginBottom: 12,
+          border: `2px solid ${status === "face_detected" ? "rgba(16,185,129,0.7)" : "rgba(255,255,255,0.08)"}`,
+          transition: "border-color 0.3s ease",
+          boxShadow: status === "face_detected" ? "0 0 20px rgba(16,185,129,0.25)" : "none",
+        }}>
           <video
             ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="face-verify-video"
-            style={{ width: "100%", maxHeight: 220, objectFit: "cover", display: "block" }}
+            autoPlay playsInline muted
+            style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
           />
-          {status === "scanning" && <div className="face-verify-scanner" />}
+          {/* Real-time landmark overlay canvas */}
+          <canvas
+            ref={overlayRef}
+            style={{
+              position: "absolute", top: 0, left: 0,
+              width: "100%", height: "100%",
+              pointerEvents: "none",
+            }}
+          />
+
+          {/* Corner bracket decorations */}
+          {["tl","tr","bl","br"].map((pos) => (
+            <div key={pos} style={{
+              position: "absolute",
+              top: pos.startsWith("t") ? 8 : "auto",
+              bottom: pos.startsWith("b") ? 8 : "auto",
+              left: pos.endsWith("l") ? 8 : "auto",
+              right: pos.endsWith("r") ? 8 : "auto",
+              width: 18, height: 18,
+              borderTop: pos.startsWith("t") ? `2px solid ${status === "face_detected" ? "#10b981" : "rgba(255,255,255,0.4)"}` : "none",
+              borderBottom: pos.startsWith("b") ? `2px solid ${status === "face_detected" ? "#10b981" : "rgba(255,255,255,0.4)"}` : "none",
+              borderLeft: pos.endsWith("l") ? `2px solid ${status === "face_detected" ? "#10b981" : "rgba(255,255,255,0.4)"}` : "none",
+              borderRight: pos.endsWith("r") ? `2px solid ${status === "face_detected" ? "#10b981" : "rgba(255,255,255,0.4)"}` : "none",
+              transition: "border-color 0.3s ease",
+            }} />
+          ))}
+
+          {/* Status overlay badge */}
+          <div style={{
+            position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)",
+            borderRadius: 20, padding: "3px 12px",
+            fontSize: 11, fontWeight: 700,
+            color: sc.color,
+            border: `1px solid ${sc.color}40`,
+            whiteSpace: "nowrap",
+          }}>
+            {status === "face_detected" && (
+              <span style={{
+                display: "inline-block", width: 6, height: 6,
+                borderRadius: "50%", background: "#10b981",
+                marginRight: 6, verticalAlign: "middle",
+                animation: "pulse 1s infinite",
+              }} />
+            )}
+            {sc.text}
+          </div>
         </div>
       )}
 
-      {/* Captured Badge Preview */}
+      {/* Captured state */}
       {status === "captured" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--em)", display: "flex", alignItems: "center", justifyContent: "center", color: "#000", fontWeight: 800, fontSize: 14 }}>
-            ✓
-          </div>
-          <div style={{ flex: 1, fontSize: 12.5, color: "#e2e8f0", fontWeight: 600 }}>
-            Biometric Profile Verified (128-D Vector)
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)",
+          borderRadius: 10, padding: "12px 14px", marginBottom: 12,
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%",
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", fontWeight: 800, fontSize: 14, flexShrink: 0,
+          }}>✓</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>Face Enrolled</div>
+            <div style={{ fontSize: 11.5, color: "#64748b" }}>128-dimensional biometric vector captured</div>
           </div>
         </div>
       )}
@@ -211,75 +346,82 @@ export default function FaceVerification({ onCaptured }) {
       {/* Hidden canvas for photo processing */}
       <canvas ref={canvasRef} style={{ display: "none" }} />
 
-      {/* Status message */}
-      <div className="face-verify-status" style={{ color: statusColors[status] || "var(--text-secondary)", fontSize: 12, marginBottom: 10, textAlign: "center" }}>
-        {!ready && status !== "error" ? "Loading face recognition models…" : statusText[status]}
-      </div>
+      {/* Status message (when camera not active) */}
+      {!cameraActive && status !== "captured" && (
+        <div style={{
+          textAlign: "center", fontSize: 12, color: sc.color,
+          marginBottom: 10, minHeight: 18,
+        }}>
+          {!ready && status !== "error" ? "Loading face recognition models…" : sc.text}
+        </div>
+      )}
 
-      {/* Action Buttons */}
-      <div className="face-verify-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 8 }}>
         {!cameraActive && status !== "captured" && (
           <button
             type="button"
             disabled={!ready}
             onClick={startCamera}
-            className="face-verify-btn primary"
-            style={{ flex: 1, height: 38, background: "rgba(16, 185, 129, 0.15)", border: "1px solid rgba(16, 185, 129, 0.3)", borderRadius: 8, color: "var(--em)", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
+            style={{
+              flex: 1, height: 40,
+              background: ready ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.05)",
+              border: `1px solid ${ready ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.08)"}`,
+              borderRadius: 10, color: ready ? "#10b981" : "#64748b",
+              fontWeight: 700, fontSize: 12.5, cursor: ready ? "pointer" : "not-allowed",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              transition: "all 0.2s",
+            }}
           >
-            📷 Enable Camera & Scan Face
+            <span>📷</span>
+            <span>{ready ? "Start Camera Scan" : "Loading models…"}</span>
           </button>
-        )}
-
-        {cameraActive && (
-          <>
-            <button
-              type="button"
-              disabled={!ready || status === "scanning"}
-              onClick={captureFromCamera}
-              className="face-verify-btn primary"
-              style={{ flex: 1, height: 38, background: "var(--em)", border: "none", borderRadius: 8, color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-            >
-              {status === "scanning" ? "Scanning…" : "📸 Capture Face Now"}
-            </button>
-            <button
-              type="button"
-              onClick={stopCamera}
-              style={{ padding: "0 12px", height: 38, background: "rgba(255, 255, 255, 0.08)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
-            >
-              Cancel
-            </button>
-          </>
         )}
 
         {status === "captured" && (
           <button
             type="button"
             disabled={!ready}
-            onClick={startCamera}
-            style={{ flex: 1, height: 36, background: "rgba(255, 255, 255, 0.08)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
+            onClick={() => { setStatus("idle"); setFaceBox(null); autoCaptureFiredRef.current = false; startCamera(); }}
+            style={{
+              flex: 1, height: 36,
+              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 10, color: "#94a3b8", fontSize: 12, cursor: "pointer",
+            }}
           >
-            🔄 Recapture Face
+            🔄 Rescan Face
           </button>
         )}
 
-        {/* Upload selfie option */}
         <button
           type="button"
-          disabled={!ready || status === "scanning"}
+          disabled={!ready || status === "scanning" || status === "loading"}
           onClick={() => fileRef.current?.click()}
-          style={{ padding: "0 14px", height: 38, background: "rgba(255, 255, 255, 0.06)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: 8, color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
+          style={{
+            padding: "0 14px", height: 40,
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10, color: "#64748b", fontSize: 12, cursor: "pointer",
+            flexShrink: 0,
+          }}
         >
-          📁 Upload Selfie
+          📁 Upload
         </button>
         <input
           ref={fileRef}
           type="file"
           accept="image/*"
           capture="user"
-          onChange={handleFileChange}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) captureFromPhoto(f); }}
           style={{ display: "none" }}
         />
       </div>
+
+      {/* Auto-capture hint */}
+      {cameraActive && status !== "captured" && (
+        <div style={{ textAlign: "center", marginTop: 8, fontSize: 11, color: "#475569" }}>
+          Face will be captured automatically when detected
+        </div>
+      )}
     </div>
   );
 }

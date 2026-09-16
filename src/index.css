@@ -1870,3 +1870,22 @@ select.fi option {
     min-width: unset;
   }
 }
+
+/* ─── WIZARD FADE SLIDE ANIMATION ────────────────────────────────────────── */
+@keyframes fadeSlide {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+
+/* --- ANIMATIONS ----------------------------------------------------------- */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+

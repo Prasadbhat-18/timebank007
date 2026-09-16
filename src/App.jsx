@@ -12,6 +12,7 @@ import LandingChoice from "./LandingChoice.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import AICTEProgress from "./AICTEProgress.jsx";
 import VerifyCertificate from "./VerifyCertificate.jsx";
+import RegistrationWizard from "./components/RegistrationWizard.jsx";
 
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
@@ -228,6 +229,200 @@ export function WelcomeBonusModal({ user, close }) {
   );
 }
 
+export function BlockchainTxModal({ tx, close }) {
+  const isPol = tx.type === "gas_faucet_claim" || tx.type === "GAS_DRIP" || tx.type === "polygon_faucet_deposit" || tx.type === "GAS_DEPOSIT";
+  const [copied, setCopied] = useState(false);
+  const hash = tx.txHash || "";
+  const block = tx.blockNumber || tx.block || null;
+  const blockUrl = block ? `https://amoy.polygonscan.com/block/${block}` : null;
+  const txUrl = hash ? chain.txLink(hash) : null;
+
+  const copyHash = () => {
+    if (!hash) return;
+    navigator.clipboard?.writeText(hash);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{ maxWidth: 540, width: "100%", padding: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: "rgba(16, 185, 129, 0.15)",
+            border: "1px solid rgba(16, 185, 129, 0.3)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 18
+          }}>
+            ⛓️
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>
+              Blockchain Transaction Ledger
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              Polygon Amoy Testnet (Chain ID 80002)
+            </div>
+          </div>
+        </div>
+        <span className="tag tg" style={{ fontSize: 11, padding: "3px 9px" }}>
+          ● Verified On-Chain
+        </span>
+      </div>
+
+      <div style={{
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        padding: "14px 16px",
+        marginBottom: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Status</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--em)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--em)", display: "inline-block" }} />
+            Finalized & Anchored
+          </span>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Live Bor Block Height</span>
+          {blockUrl ? (
+            <a
+              href={blockUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "var(--purple)", display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "underline" }}
+              title="Verify this block directly on Polygonscan"
+            >
+              #{block} ↗
+            </a>
+          ) : (
+            <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "var(--purple)" }}>
+              Pending
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Transaction Type</span>
+          <span className="tag" style={{ background: "rgba(255,255,255,0.08)", color: "#fff", fontSize: 12 }}>
+            {tx.type || "TRANSFER"}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Value / Credits</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: isPol ? "var(--amber)" : "var(--em)" }}>
+            {tx.amount} {isPol ? "POL" : "Time Credits"}
+          </span>
+        </div>
+
+        {tx.from && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>From</span>
+            <span style={{ fontFamily: "monospace", fontSize: 12, color: "#ccc" }}>
+              {chain.formatAddress(tx.from)}
+            </span>
+          </div>
+        )}
+
+        {tx.to && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>To</span>
+            <span style={{ fontFamily: "monospace", fontSize: 12, color: "#ccc" }}>
+              {chain.formatAddress(tx.to)}
+            </span>
+          </div>
+        )}
+
+        {tx.createdAt && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Timestamp</span>
+            <span style={{ fontSize: 12, color: "#aaa" }}>
+              {new Date(tx.createdAt).toLocaleString()}
+            </span>
+          </div>
+        )}
+
+        <div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+            EVM Keccak-256 State Proof / Tx Hash:
+          </div>
+          <div style={{
+            background: "rgba(0,0,0,0.35)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            fontFamily: "monospace",
+            fontSize: 12,
+            wordBreak: "break-all",
+            color: "#34d399",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}>
+            <span>{hash || "N/A"}</span>
+            {hash && (
+              <button
+                onClick={copyHash}
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  border: "none",
+                  borderRadius: 4,
+                  color: "#fff",
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                {copied ? "Copied! ✓" : "Copy"}
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 6, lineHeight: 1.4 }}>
+            💡 <strong>Polygon Amoy Bor Verification:</strong> This record is cryptographically committed with Block #{block}. Click "Verify Block on Polygonscan" to inspect the live on-chain block.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        {blockUrl && (
+          <a
+            href={blockUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-g btn-sm"
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <span>Verify Block #{block} on Polygonscan</span> ↗
+          </a>
+        )}
+        {txUrl && (
+          <a
+            href={txUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-o btn-sm"
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <span>Search Tx Hash</span> ↗
+          </a>
+        )}
+        <button className="btn btn-o btn-sm" onClick={close}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [wallet, setWallet] = useState(null); // { provider, signer, address, balance }
@@ -236,12 +431,37 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const [clockAngle, setClockAngle] = useState({ h: 0, m: 0 });
   const [verifyCertId, setVerifyCertId] = useState(null);
+  const [pendingUserId, setPendingUserId] = useState(null); // student awaiting college admin approval
+  const [dupeFaceModal, setDupeFaceModal] = useState(null); // { matchedEmail }
 
   // Shared data cache
   const [skills, setSkills] = useState([]);
   const [users, setUsers] = useState([]);
 
   const [autofillOtpData, setAutofillOtpData] = useState(null);
+
+  // Restore authenticated session & transactions immediately on site visit
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    api.fetchMe()
+      .then((res) => {
+        if (res?.user) {
+          setUser(res.user);
+          if (res.user.role === "websiteAdmin" || res.user.role === "super_admin") {
+            setPage("website-admin");
+          } else if (res.user.role === "collegeAdmin" || res.user.role === "institute_admin") {
+            setPage("college-admin");
+          } else {
+            setPage("dashboard");
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("Session restore expired or failed:", err.message);
+        localStorage.removeItem("token");
+      });
+  }, []);
 
   // Check URL hash for public certificate verification /#verify/:certId or magic login /#magic-login/:token
   useEffect(() => {
@@ -359,10 +579,26 @@ export default function App() {
   }, [user, notify, refreshUser]);
 
   // Login
-  const doLogin = async (email, pass) => {
+  const doLogin = async (email, pass, faceDescriptor) => {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
-      const { token, user: u, newDevice } = await api.login(email, pass, null, deviceFingerprint);
+      const res = await api.login(email, pass, faceDescriptor, deviceFingerprint);
+
+      // Duplicate face detected across accounts
+      if (res.crossAccountFlag) {
+        setDupeFaceModal({ matchedEmail: res.crossAccountFlag.matchedEmail });
+        return;
+      }
+
+      // Student pending college admin approval
+      if (res.waitingApproval) {
+        setPendingUserId(res.userId);
+        nav("pending_approval");
+        notify("Your account is pending college admin approval.", "info");
+        return;
+      }
+
+      const { token, user: u, newDevice } = res;
       localStorage.setItem("token", token);
       setUser(u);
       if (u.role === "websiteAdmin" || u.role === "super_admin") {
@@ -405,10 +641,25 @@ export default function App() {
   };
 
   // Real-Time College Email OTP Verification & Login
-  const doLoginWithOtp = async (email, otp) => {
+  const doLoginWithOtp = async (email, otp, faceDescriptor) => {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
-      const res = await api.verifyOtp(email, otp, deviceFingerprint);
+      const res = await api.verifyOtp(email, otp, deviceFingerprint, faceDescriptor);
+
+      // Student pending college admin approval
+      if (res.waitingApproval) {
+        setPendingUserId(res.userId);
+        nav("pending_approval");
+        notify("Registration submitted. Awaiting college admin approval.", "info");
+        return res;
+      }
+
+      // Duplicate face detected
+      if (res.crossAccountFlag) {
+        setDupeFaceModal({ matchedEmail: res.crossAccountFlag.matchedEmail });
+        return res;
+      }
+
       if (res.token && res.user) {
         localStorage.setItem("token", res.token);
         setUser(res.user);
@@ -584,6 +835,14 @@ export default function App() {
               clockAngle={clockAngle}
               autofillOtpData={autofillOtpData}
               notify={notify}
+              setUser={setUser}
+              nav={nav}
+            />
+          )}
+          {page === "pending_approval" && (
+            <PendingApprovalScreen
+              userId={pendingUserId}
+              onLogout={() => { setPendingUserId(null); nav("auth"); }}
             />
           )}
           {page === "website-admin-login" && <WebsiteAdminLogin doLogin={doWebsiteAdminLogin} />}
@@ -600,7 +859,112 @@ export default function App() {
         </motion.div>
       </AnimatePresence>
 
+      {/* Duplicate face modal */}
+      <AnimatePresence>
+        {dupeFaceModal && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)",
+              zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+            }}
+            onClick={(e) => e.target === e.currentTarget && setDupeFaceModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              style={{
+                maxWidth: 400, width: "100%", background: "rgba(18,24,38,0.98)",
+                backdropFilter: "blur(20px)", border: "1px solid rgba(239,68,68,0.25)",
+                borderRadius: 20, padding: "2rem", textAlign: "center",
+                boxShadow: "0 20px 60px rgba(239,68,68,0.15)",
+              }}
+            >
+              <div style={{ fontSize: 44, marginBottom: 12 }}>⚠️</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginBottom: 8 }}>Duplicate Face Detected</div>
+              <p style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6, marginBottom: 16 }}>
+                This face scan matches an existing account registered with:<br />
+                <span style={{ color: "#10b981", fontWeight: 700 }}>{dupeFaceModal.matchedEmail}</span>
+              </p>
+              <p style={{ fontSize: 12, color: "#64748b", marginBottom: 20 }}>
+                If this is your account, sign in with that email address. Creating duplicate accounts violates our terms of service.
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn btn-o" onClick={() => setDupeFaceModal(null)} style={{ flex: 1, justifyContent: "center" }}>Cancel</button>
+                <button
+                  className="btn btn-p"
+                  style={{ flex: 2, justifyContent: "center" }}
+                  onClick={() => { setDupeFaceModal(null); nav("auth"); notify(`Please sign in with ${dupeFaceModal.matchedEmail}`, "info"); }}
+                >
+                  Sign In with That Account →
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {user && <AiChatWidget user={user} />}
+    </div>
+  );
+}
+
+// ─── PendingApprovalScreen ────────────────────────────────────────────────────
+function PendingApprovalScreen({ userId, onLogout }) {
+  const [approvalStatus, setApprovalStatus] = useState("pending");
+  const [pollCount, setPollCount] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    const poll = async () => {
+      try {
+        const data = await api.checkApprovalStatus(userId);
+        if (data.approvalStatus === "approved") setApprovalStatus("approved");
+        else if (data.approvalStatus === "rejected") setApprovalStatus("rejected");
+        setPollCount(c => c + 1);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
+  }, [userId]);
+
+  if (approvalStatus === "approved") return (
+    <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", textAlign: "center", gap: 16, padding: "2rem" }}>
+      <div style={{ fontSize: 56 }}>🎉</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#10b981" }}>Account Approved!</div>
+      <p style={{ fontSize: 14, color: "#64748b", maxWidth: 360 }}>Your college admin has approved your account. Please sign in to continue.</p>
+      <button className="btn btn-p" onClick={onLogout} style={{ justifyContent: "center", minWidth: 160 }}>Sign In Now →</button>
+    </div>
+  );
+
+  if (approvalStatus === "rejected") return (
+    <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", textAlign: "center", gap: 16, padding: "2rem" }}>
+      <div style={{ fontSize: 56 }}>❌</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: "#ef4444" }}>Application Not Approved</div>
+      <p style={{ fontSize: 14, color: "#64748b", maxWidth: 360 }}>Your application was not approved. Please contact your college administration for details.</p>
+      <button className="btn btn-o" onClick={onLogout} style={{ justifyContent: "center", minWidth: 160 }}>Back to Login</button>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", textAlign: "center", gap: 20, padding: "2rem" }}>
+      <div style={{ position: "relative", width: 80, height: 80 }}>
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid rgba(251,191,36,0.15)" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid transparent", borderTopColor: "#fbbf24", animation: "spin 1.2s linear infinite" }} />
+        <div style={{ position: "absolute", inset: "18px", borderRadius: "50%", background: "rgba(251,191,36,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>⏳</div>
+      </div>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "#f1f5f9", marginBottom: 8 }}>Pending College Admin Approval</div>
+        <p style={{ fontSize: 13.5, color: "#64748b", maxWidth: 380, lineHeight: 1.6, margin: "0 auto" }}>
+          Your ID card is under review. Your college admin will approve your account shortly. This usually takes 1–24 hours.
+        </p>
+      </div>
+      <div style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.15)", borderRadius: 12, padding: "12px 20px", maxWidth: 360, fontSize: 12.5, color: "#fbbf24", lineHeight: 1.6 }}>
+        🔔 Auto-refreshing every 15 seconds{pollCount > 0 && <span style={{ color: "#475569", marginLeft: 6 }}>({pollCount} checks)</span>}
+      </div>
+      <button type="button" onClick={onLogout} style={{ background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 20px", color: "#64748b", fontSize: 12.5, cursor: "pointer" }}>
+        Back to Login
+      </button>
     </div>
   );
 }
@@ -1285,6 +1649,91 @@ export function EarnedSpentGauge({ user }) {
   );
 }
 
+function LandingBlockchainTicker() {
+  const [records, setRecords] = useState([]);
+  const [liveBlock, setLiveBlock] = useState(null);
+
+  useEffect(() => {
+    api.fetchBlockchainRecords().then((res) => {
+      if (Array.isArray(res)) {
+        setRecords(res.slice(0, 6));
+        if (res[0]?.block) setLiveBlock(res[0].block);
+      }
+    }).catch(() => {});
+
+    let socket = null;
+    try {
+      socket = io(window.location.origin, { transports: ["websocket", "polling"] });
+      socket.on("blockchain_ledger_entry", (entry) => {
+        if (entry) {
+          setRecords((prev) => [entry, ...prev.slice(0, 5)]);
+          if (entry.block) setLiveBlock(entry.block);
+        }
+      });
+    } catch {}
+
+    return () => { if (socket) socket.disconnect(); };
+  }, []);
+
+  return (
+    <div style={{
+      background: "rgba(18, 24, 38, 0.8)",
+      border: "1px solid rgba(16, 185, 129, 0.25)",
+      borderRadius: 12,
+      padding: "12px 18px",
+      marginTop: 24,
+      maxWidth: 780,
+      marginLeft: "auto",
+      marginRight: "auto",
+      backdropFilter: "blur(12px)",
+      textAlign: "left",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 10px #10b981" }} />
+          <span style={{ fontWeight: 700, fontSize: 13, color: "#fff" }}>Polygon Amoy Live Ledger Stream</span>
+          {liveBlock && (
+            <span style={{ fontFamily: "monospace", fontSize: 11.5, color: "var(--purple)", background: "rgba(139, 92, 246, 0.15)", padding: "2px 6px", borderRadius: 4 }}>
+              Block #{liveBlock}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Real-Time EVM State Anchors · Chain ID 80002</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+        {records.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#888", padding: "4px 0" }}>Connecting to Polygon Amoy Bor network...</div>
+        ) : (
+          records.map((r) => (
+            <div
+              key={r._id || r.txHash}
+              style={{
+                flexShrink: 0,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+              }}
+            >
+              <span className={`tag ${r.type === "MINT" || r.type === "AICTE_MINT" ? "tp" : r.type === "GAS_DRIP" ? "ta" : "tg"}`} style={{ fontSize: 10, padding: "2px 6px" }}>
+                {r.type}
+              </span>
+              <span style={{ fontFamily: "monospace", color: "#a78bfa", fontWeight: 700 }}>#{r.block}</span>
+              <span style={{ color: "#fff", fontWeight: 600 }}>{r.amount} {r.type === "GAS_DRIP" ? "POL" : "Credits"}</span>
+              <span style={{ color: "var(--em)", fontFamily: "monospace", fontSize: 11 }}>{chain.formatAddress(r.txHash)}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── LANDING ─────────────────────────────────────────────────────────────────
 function Landing({ nav }) {
   const howSteps = [
@@ -1320,6 +1769,10 @@ function Landing({ nav }) {
               <div key={s.l}><div className="hstat-num">{s.n}</div><div className="hstat-lbl">{s.l}</div></div>
             ))}
           </motion.div>
+
+          <motion.div {...fadeUp(0.6)}>
+            <LandingBlockchainTicker />
+          </motion.div>
         </motion.div>
       </div>
 
@@ -1328,7 +1781,7 @@ function Landing({ nav }) {
           <div className="showcase-title-area">
             <div className="sec-eyebrow">Interactive Showcase</div>
             <h2 className="sec-title">Explore TimeBank's Ecosystem</h2>
-            <p className="sec-sub" style={{ margin: "0.5rem auto 0", maxWidth: 600 }}>Explore our decentralized network features and watch the live mock ledger visualisations in action.</p>
+            <p className="sec-sub" style={{ margin: "0.5rem auto 0", maxWidth: 600 }}>Explore our decentralized network features and watch live Polygon Amoy blockchain ledger verification in action.</p>
           </div>
           <FeatureShowcase />
         </div>
@@ -1370,7 +1823,7 @@ function Landing({ nav }) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify }) {
+function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify, setUser, nav }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
   const [regRole, setRegRole] = useState(null); // null | 'student' | 'general_user'
   
@@ -1431,6 +1884,8 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
   const mx = cx + 18 * Math.sin((clockAngle.m * Math.PI) / 180);
   const my = cy - 18 * Math.cos((clockAngle.m * Math.PI) / 180);
 
+  const [showFaceScan, setShowFaceScan] = useState(false);
+
   // Send Login OTP
   const handleSendLoginOtp = async () => {
     if (!le || !le.includes("@")) {
@@ -1440,7 +1895,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     setError("");
     setLoading(true);
     try {
-      const res = await api.sendOtp(le, "login");
+      await api.sendOtp(le, "login");
       setLoginOtpSent(true);
       setLoginCountdown(60);
       if (notify) notify(`Verification code dispatched to ${le} 📬`);
@@ -1461,7 +1916,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     setLoading(true);
     try {
       if (doLoginWithOtp) {
-        await doLoginWithOtp(le, loginOtp);
+        await doLoginWithOtp(le, loginOtp, faceDescriptor);
       }
     } catch (e) {
       setError(e.message || "Verification failed. Please check the code.");
@@ -1516,7 +1971,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     setError("");
     setLoading(true);
     try {
-      await doLogin(le, lp);
+      await doLogin(le, lp, faceDescriptor);
     } catch (e) {
       setError(e.message || "Failed to sign in");
     } finally {
@@ -1791,6 +2246,48 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                         />
                       </div>
 
+                      {/* Biometric Face Scan for OTP Login */}
+                      <div style={{
+                        background: faceDescriptor ? "rgba(16, 185, 129, 0.06)" : "rgba(255, 255, 255, 0.03)",
+                        border: `1px solid ${faceDescriptor ? "rgba(16, 185, 129, 0.3)" : "rgba(255, 255, 255, 0.08)"}`,
+                        borderRadius: 12,
+                        padding: "10px 14px",
+                        marginBottom: "1rem",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>{faceDescriptor ? "✅" : "👤"}</span>
+                            <div>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: faceDescriptor ? "#34d399" : "#fff" }}>
+                                {faceDescriptor ? "Face Scan Captured" : "Live Face Scan"}
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                                {faceDescriptor ? "Biometric embedding verified" : "Biometric check & multi-account security"}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={faceDescriptor ? "btn btn-o btn-sm" : "btn btn-p btn-sm"}
+                            onClick={() => setShowFaceScan(!showFaceScan)}
+                            style={{ padding: "4px 10px", fontSize: 11, height: "auto" }}
+                          >
+                            {showFaceScan ? "Close" : faceDescriptor ? "Rescan" : "Scan Face"}
+                          </button>
+                        </div>
+                        {showFaceScan && (
+                          <div style={{ marginTop: 10 }}>
+                            <FaceVerification
+                              onCaptured={(desc) => {
+                                setFaceDescriptor(desc);
+                                setShowFaceScan(false);
+                                if (notify) notify("Face scan captured successfully! 👤✓");
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
                       <button
                         className="btn btn-p"
                         onClick={handleVerifyLoginOtp}
@@ -1826,6 +2323,48 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                     <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Password</label>
                     <input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} style={{ height: 44 }} />
                   </div>
+
+                  {/* Biometric Face Scan for Password Login */}
+                  <div style={{
+                    background: faceDescriptor ? "rgba(16, 185, 129, 0.06)" : "rgba(255, 255, 255, 0.03)",
+                    border: `1px solid ${faceDescriptor ? "rgba(16, 185, 129, 0.3)" : "rgba(255, 255, 255, 0.08)"}`,
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                    margin: "0.75rem 0 1rem",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{faceDescriptor ? "✅" : "👤"}</span>
+                        <div>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: faceDescriptor ? "#34d399" : "#fff" }}>
+                            {faceDescriptor ? "Face Scan Captured" : "Biometric Face Scan"}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {faceDescriptor ? "Biometric embedding ready" : "Scanned face must match account owner"}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className={faceDescriptor ? "btn btn-o btn-sm" : "btn btn-p btn-sm"}
+                        onClick={() => setShowFaceScan(!showFaceScan)}
+                        style={{ padding: "4px 10px", fontSize: 11, height: "auto" }}
+                      >
+                        {showFaceScan ? "Close" : faceDescriptor ? "Rescan" : "Scan Face"}
+                      </button>
+                    </div>
+                    {showFaceScan && (
+                      <div style={{ marginTop: 10 }}>
+                        <FaceVerification
+                          onCaptured={(desc) => {
+                            setFaceDescriptor(desc);
+                            setShowFaceScan(false);
+                            if (notify) notify("Face scan captured successfully! 👤✓");
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                   
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.25rem" }}>
                     <button type="button" style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }} onClick={() => { setTab("forgot"); setError(""); }}>
@@ -1844,330 +2383,25 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
           {/* ─── SIGN UP: ROLE PICKER ─── */}
           {tab === "register" && !regRole && (
             <LandingChoice
-              onSelectRole={(r) => { setRegRole(r); setError(""); }}
+              onSelectRole={(r) => { setRegRole(r === "general_user" ? "general" : r); setError(""); }}
               onBackToLogin={() => { setTab("login"); setRegRole(null); setError(""); }}
             />
           )}
 
-          {/* ─── SIGN UP: STUDENT FLOW (OTP + LIVE FACE) ─── */}
-          {tab === "register" && regRole === "student" && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", padding: "10px 14px", background: "rgba(16, 185, 129, 0.08)", borderRadius: 12, border: "1px solid rgba(16, 185, 129, 0.2)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13.5, color: "var(--em)" }}>
-                  <span>🎓</span> Student Registration
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setRegRole(null); setError(""); }}
-                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
-                >
-                  Change role
-                </button>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Full Legal Name</label>
-                  <input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="e.g. Alex Kumar" style={{ height: 42 }} />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>College / Roll ID</label>
-                  <input className="fi" value={rpin} onChange={(e) => setRpin(e.target.value)} placeholder="Enter College ID / USN" style={{ height: 42 }} />
-                </div>
-              </div>
-
-              <div className="field" style={{ marginBottom: "1rem" }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>College / Institution</label>
-                <CollegeAutocomplete
-                  value={rc}
-                  onChange={(val) => { setRc(val); }}
-                  onSelectCollege={(doc) => { setSelectedCollegeDoc(doc); }}
-                  placeholder="Search and select your college..."
-                />
-              </div>
-
-              {/* College Email & OTP Verification */}
-              <div className="field" style={{ marginBottom: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>College / Student Email</label>
-                  {emailVerified ? (
-                    <span style={{ fontSize: 11.5, color: "var(--em)", fontWeight: 700 }}>✓ Email Verified</span>
-                  ) : regOtpSent ? (
-                    <span style={{ fontSize: 11.5, color: "#34d399", fontWeight: 600 }}>Code Sent 📬</span>
-                  ) : null}
-                </div>
-                
-                <input
-                  className="fi"
-                  type="email"
-                  value={re}
-                  onChange={(e) => { setRe(e.target.value); setEmailVerified(false); }}
-                  placeholder="yourname@college.edu.in"
-                  style={{ width: "100%", height: 44, fontSize: 14 }}
-                />
-
-                {!emailVerified && !regOtpSent && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={handleSendRegOtp}
-                      disabled={loading || !re || !re.includes("@")}
-                      style={{
-                        width: "100%",
-                        height: 38,
-                        background: "rgba(16, 185, 129, 0.12)",
-                        border: "1px solid rgba(16, 185, 129, 0.3)",
-                        borderRadius: 8,
-                        color: "var(--em)",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                      }}
-                    >
-                      {loading ? "Sending Verification Code..." : "⚡ Send Verification Code to Email"}
-                    </button>
-                  </div>
-                )}
-
-                {/* OTP Input block for registration */}
-                {!emailVerified && regOtpSent && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 10, background: "rgba(16, 185, 129, 0.06)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 10, padding: "10px 12px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                        Enter 6-digit code sent to <b style={{ color: "#fff" }}>{re}</b>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleSendRegOtp}
-                        disabled={regCountdown > 0}
-                        style={{ background: "none", border: "none", color: regCountdown > 0 ? "var(--text-muted)" : "var(--em)", fontSize: 11, cursor: regCountdown > 0 ? "default" : "pointer" }}
-                      >
-                        {regCountdown > 0 ? `Resend (${regCountdown}s)` : "Resend code"}
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        className="fi"
-                        placeholder="• • • • • •"
-                        value={regOtp}
-                        onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                        maxLength={6}
-                        style={{ flex: 1, height: 38, textAlign: "center", letterSpacing: 6, fontSize: 16, fontWeight: 800 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyRegOtp}
-                        disabled={loading || regOtp.length < 6}
-                        style={{
-                          padding: "0 16px",
-                          height: 38,
-                          borderRadius: 8,
-                          border: "none",
-                          background: "var(--em)",
-                          color: "#000",
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Verify OTP ✓
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Phone Number</label>
-                  <input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="10-digit mobile number" style={{ height: 42 }} />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Skills & Department</label>
-                  <input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="e.g. CS, Python, AI" style={{ height: 42 }} />
-                </div>
-              </div>
-              
-              {/* Mandatory Live Biometric Verification */}
-              <div style={{ marginBottom: "1.25rem" }}>
-                <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
-              </div>
-
-              <button
-                className="btn btn-p"
-                onClick={handleStudentRegister}
-                disabled={loading || !faceDescriptor}
-                style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}
-              >
-                {loading ? "Creating student account..." : !faceDescriptor ? "Live face scan required to register" : "Complete Student Registration & Sign In 🎓"}
-              </button>
-
-              <div style={{ marginTop: "1rem", textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={() => { setRegRole("general_user"); setError(""); }}
-                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
-                >
-                  Not a student? Switch to General User signup →
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ─── SIGN UP: GENERAL USER FLOW (OTP + LIVE FACE) ─── */}
-          {tab === "register" && regRole === "general_user" && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem", padding: "10px 14px", background: "rgba(139, 92, 246, 0.08)", borderRadius: 12, border: "1px solid rgba(139, 92, 246, 0.2)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13.5, color: "var(--purple)" }}>
-                  <span>⚡</span> General User Registration
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setRegRole(null); setError(""); }}
-                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
-                >
-                  Change role
-                </button>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Full Name</label>
-                  <input className="fi" value={rn} onChange={(e) => setRn(e.target.value)} placeholder="Your full name" style={{ height: 42 }} />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Phone Number</label>
-                  <input className="fi" value={rphone} onChange={(e) => setRphone(e.target.value)} placeholder="10-digit mobile number" style={{ height: 42 }} />
-                </div>
-              </div>
-
-              {/* Email & OTP Verification */}
-              <div className="field" style={{ marginBottom: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <label style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>Email Address</label>
-                  {emailVerified ? (
-                    <span style={{ fontSize: 11.5, color: "var(--em)", fontWeight: 700 }}>✓ Email Verified</span>
-                  ) : regOtpSent ? (
-                    <span style={{ fontSize: 11.5, color: "#34d399", fontWeight: 600 }}>Code Sent 📬</span>
-                  ) : null}
-                </div>
-                
-                <input
-                  className="fi"
-                  type="email"
-                  value={re}
-                  onChange={(e) => { setRe(e.target.value); setEmailVerified(false); }}
-                  placeholder="your@email.com"
-                  style={{ width: "100%", height: 44, fontSize: 14 }}
-                />
-
-                {!emailVerified && !regOtpSent && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={handleSendRegOtp}
-                      disabled={loading || !re || !re.includes("@")}
-                      style={{
-                        width: "100%",
-                        height: 38,
-                        background: "rgba(139, 92, 246, 0.12)",
-                        border: "1px solid rgba(139, 92, 246, 0.3)",
-                        borderRadius: 8,
-                        color: "var(--purple)",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                      }}
-                    >
-                      {loading ? "Sending Verification Code..." : "⚡ Send Verification Code to Email"}
-                    </button>
-                  </div>
-                )}
-
-                {!emailVerified && regOtpSent && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 10, background: "rgba(139, 92, 246, 0.06)", border: "1px solid rgba(139, 92, 246, 0.2)", borderRadius: 10, padding: "10px 12px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                        Enter 6-digit code sent to <b style={{ color: "#fff" }}>{re}</b>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleSendRegOtp}
-                        disabled={regCountdown > 0}
-                        style={{ background: "none", border: "none", color: regCountdown > 0 ? "var(--text-muted)" : "var(--purple)", fontSize: 11, cursor: regCountdown > 0 ? "default" : "pointer" }}
-                      >
-                        {regCountdown > 0 ? `Resend (${regCountdown}s)` : "Resend code"}
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        className="fi"
-                        placeholder="• • • • • •"
-                        value={regOtp}
-                        onChange={(e) => setRegOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                        maxLength={6}
-                        style={{ flex: 1, height: 38, textAlign: "center", letterSpacing: 6, fontSize: 16, fontWeight: 800 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyRegOtp}
-                        disabled={loading || regOtp.length < 6}
-                        style={{
-                          padding: "0 16px",
-                          height: 38,
-                          borderRadius: 8,
-                          border: "none",
-                          background: "var(--purple)",
-                          color: "#fff",
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Verify OTP ✓
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-
-              <div className="field" style={{ marginBottom: "1.25rem" }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4, display: "block" }}>Bio & Skills Offered</label>
-                <input className="fi" value={rb} onChange={(e) => setRb(e.target.value)} placeholder="Skills offered / skills needed..." style={{ height: 42 }} />
-              </div>
-              
-              {/* Mandatory Live Face Verification */}
-              <div style={{ marginBottom: "1.25rem" }}>
-                <FaceVerification onCaptured={(desc) => setFaceDescriptor(desc)} />
-              </div>
-
-              <button
-                className="btn btn-p"
-                onClick={handleGeneralRegister}
-                disabled={loading || !faceDescriptor}
-                style={{ width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}
-              >
-                {loading ? "Creating account..." : !faceDescriptor ? "Live face scan required to register" : "Complete Registration & Sign In ⚡"}
-              </button>
-
-              <div style={{ marginTop: "1rem", textAlign: "center" }}>
-                <button
-                  type="button"
-                  onClick={() => { setRegRole("student"); setError(""); }}
-                  style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 12, cursor: "pointer" }}
-                >
-                  Are you a student? Switch to Student signup →
-                </button>
-              </div>
-            </motion.div>
+          {/* ─── SIGN UP: STEP-BY-STEP REGISTRATION WIZARD ─── */}
+          {tab === "register" && regRole && (
+            <RegistrationWizard
+              role={regRole === "student" ? "student" : "general"}
+              onCancel={() => { setRegRole(null); setError(""); }}
+              onComplete={(token, newUser) => {
+                if (token && newUser) {
+                  localStorage.setItem("token", token);
+                  if (setUser) setUser(newUser);
+                  if (nav) nav("dashboard");
+                  if (notify) notify(`Welcome to TimeBank, ${newUser.name.split(" ")[0]}! 🚀`);
+                }
+              }}
+            />
           )}
 
           {/* ─── FORGOT PASSWORD ─── */}
@@ -2295,6 +2529,39 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
     api.fetchEmergencyContacts(user._id).then(setEmergency).catch(() => {});
   }, [user]);
 
+  // Real-time transaction listener on Dashboard
+  useEffect(() => {
+    if (!user?._id) return;
+    let socket = null;
+    try {
+      socket = io(window.location.origin, {
+        auth: { token: localStorage.getItem("token") },
+        transports: ["websocket", "polling"],
+      });
+
+      socket.on("blockchain_ledger_entry", (entry) => {
+        if (!entry) return;
+        const isUserWallet = user.wallet && (entry.from?.toLowerCase() === user.wallet.toLowerCase() || entry.to?.toLowerCase() === user.wallet.toLowerCase());
+        const isUserId = entry.from === user._id || entry.to === user._id;
+        if (isUserWallet || isUserId || !user.wallet) {
+          api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
+        }
+      });
+
+      socket.on("wallet_update", (data) => {
+        if (!data?.userId || data.userId === user._id) {
+          api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
+        }
+      });
+    } catch (e) {
+      console.warn("Dashboard socket listener error:", e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [user?._id, user?.wallet]);
+
   const pending = bookings.filter((b) => b.status === "pending").length;
   const verifiedAicte = aicte.filter((a) => a.verified);
   const apts = verifiedAicte.reduce((s, a) => s + a.pts, 0);
@@ -2362,25 +2629,65 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
           )}
         </div>
         <div className="card">
-          <div className="card-t">Recent transactions</div>
-          {txs.slice(0, 4).map((tx) => {
+          <div className="btwn mb1" style={{ alignItems: "center" }}>
+            <div className="card-t" style={{ margin: 0 }}>Recent transactions</div>
+            <span className="tag tg" style={{ fontSize: 10, padding: "2px 6px" }}>⛓️ On-Chain Ledger</span>
+          </div>
+          {txs.slice(0, 5).map((tx) => {
             const inc = tx.toId === user._id;
             return (
-              <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                <div className="row">
-                  <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : tx.type === "gas_faucet_claim" ? "ta" : "tg"}`}>
-                    {tx.type === "aicte_reward" ? "AICTE Reward" : tx.type === "initial_credits" ? "Joining Bonus" : tx.type === "gas_faucet_claim" ? "Gas Station" : inc ? "Received" : "Sent"}
+              <div
+                key={tx._id}
+                className="btwn"
+                onClick={() => {
+                  setModal(
+                    <BlockchainTxModal
+                      tx={{
+                        ...tx,
+                        block: tx.blockNumber,
+                        from: tx.fromId === "SYSTEM" ? "SYSTEM_AUTHORITY" : (inc ? "SENDER_WALLET" : (user.wallet || user._id)),
+                        to: inc ? (user.wallet || user._id) : "RECIPIENT_WALLET",
+                      }}
+                      close={() => setModal(null)}
+                    />
+                  );
+                }}
+                style={{
+                  fontSize: 13,
+                  padding: "8px 6px",
+                  borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  borderRadius: 6,
+                  transition: "background 0.15s ease",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                title="Click to inspect verified blockchain transaction & proof"
+              >
+                <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                  <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : (tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? "ta" : "tg"}`}>
+                    {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Bonus" : tx.type === "polygon_faucet_deposit" ? "Polygon Deposit" : tx.type === "gas_faucet_claim" ? "Gas" : inc ? "Received" : "Sent"}
                   </span>
-                  <span className="text-s">{tx.desc || (inc ? "Credits Received" : "Credits Sent")}</span>
+                  <div>
+                    <span className="text-s" style={{ color: "#fff", fontWeight: 500 }}>{tx.desc || (inc ? "Credits Received" : "Credits Sent")}</span>
+                    {tx.blockNumber && (
+                      <span style={{ fontSize: 11, color: "var(--purple)", marginLeft: 6, fontFamily: "monospace" }}>
+                        #{tx.blockNumber}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span style={{ fontWeight: 700, color: tx.type === "gas_faucet_claim" ? "var(--amber)" : inc ? "var(--em)" : "#ef4444" }}>
-                  {tx.type === "gas_faucet_claim" ? "+0.05 POL" : `${inc ? "+" : "-"}${tx.amount}h`}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: (tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? "var(--amber)" : inc ? "var(--em)" : "#ef4444" }}>
+                    {(tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? `+${tx.amount} POL` : `${inc ? "+" : "-"}${tx.amount}h`}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--em)" }}>🔍</span>
+                </div>
               </div>
             );
           })}
           {txs.length === 0 && <div className="text-m" style={{ fontSize: 13 }}>No transactions yet</div>}
-          {txs.length > 0 && <button className="btn btn-o btn-sm mt1" onClick={() => nav("wallet")}>View all →</button>}
+          {txs.length > 0 && <button className="btn btn-o btn-sm mt1" onClick={() => nav("wallet")}>View all in Wallet →</button>}
         </div>
       </motion.div>
 
@@ -2668,18 +2975,32 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
 }
 
 // ─── WALLET ──────────────────────────────────────────────────────────────────
-function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser }) {
+function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, setModal }) {
   const [txs, setTxs] = useState([]);
   const [bcRecords, setBcRecords] = useState([]);
   const [relayerStatus, setRelayerStatus] = useState(null);
   const [claimingGas, setClaimingGas] = useState(false);
   const [refreshingBal, setRefreshingBal] = useState(false);
   const [gasCountdown, setGasCountdown] = useState(0);
+  const [ledgerView, setLedgerView] = useState("my");
   
   const initialPol = parseFloat(wallet?.balance || 0).toFixed(4);
   const [livePolBalance, setLivePolBalance] = useState(initialPol);
 
-  // Sync on-chain balance directly from Polygon Amoy RPC
+  // Load initial data (supports filtering for user's personal ledger vs full network feed)
+  const loadData = useCallback(() => {
+    if (!user?._id) return;
+    api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
+    const targetWallet = wallet?.address || user?.wallet;
+    if (ledgerView === "my" && targetWallet) {
+      api.fetchUserBlockchain(targetWallet).then(setBcRecords).catch(() => {});
+    } else {
+      api.fetchBlockchainRecords().then(setBcRecords).catch(() => {});
+    }
+    api.fetchFaucetStatus().then(setRelayerStatus).catch(() => {});
+  }, [user?._id, user?.wallet, wallet?.address, ledgerView]);
+
+  // Sync on-chain balance directly from Polygon Amoy RPC & detect external deposits
   const syncOnChainBalance = useCallback(async () => {
     if (!wallet?.address) return;
     setRefreshingBal(true);
@@ -2698,12 +3019,16 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
       if (setWallet) {
         setWallet((w) => w ? ({ ...w, balance: formatted }) : w);
       }
+
+      // Check on-chain RPC via backend to record external faucet deposits (e.g. Polygon official faucet) & sync ledger
+      await api.syncOnChainGas().catch(() => {});
+      loadData();
     } catch (e) {
       console.warn("Sync balance error:", e);
     } finally {
       setRefreshingBal(false);
     }
-  }, [wallet?.address, wallet?.provider, setWallet]);
+  }, [wallet?.address, wallet?.provider, setWallet, loadData]);
 
   // Cooldown countdown timer
   useEffect(() => {
@@ -2713,14 +3038,6 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
     }
     return () => clearTimeout(timer);
   }, [gasCountdown]);
-
-  // Load initial data
-  const loadData = useCallback(() => {
-    if (!user?._id) return;
-    api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
-    api.fetchBlockchainRecords().then(setBcRecords).catch(() => {});
-    api.fetchFaucetStatus().then(setRelayerStatus).catch(() => {});
-  }, [user?._id]);
 
   // Real-time socket listeners
   useEffect(() => {
@@ -2944,54 +3261,109 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
             </button>
           </div>
 
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 12, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ color: "#aaa", display: "flex", alignItems: "center", gap: 6 }}>
-              <span>Need additional Amoy testnet POL?</span>
-              <a href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", textDecoration: "underline" }}>Polygon Official Faucet ↗</a>
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 12, display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ color: "#aaa", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 600, color: "#fff" }}>Need more Amoy POL?</span>
+              <a href="https://faucet.polygon.technology/" target="_blank" rel="noreferrer" style={{ color: "var(--em)", fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                🟣 Polygon Official Faucet (0.1 POL) ↗
+              </a>
               <span>•</span>
-              <a href="https://www.alchemy.com/faucets/polygon-amoy" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", textDecoration: "underline" }}>Alchemy Faucet ↗</a>
+              <a href="https://faucets.chain.link/polygon-amoy" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                ⛓️ Chainlink Faucet (0.5 POL) ↗
+              </a>
             </div>
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(wallet.address);
-                notify("📋 Wallet address copied to clipboard!");
-              }}
-              style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 4, color: "#ddd", padding: "2px 8px", fontSize: 11, cursor: "pointer" }}
-            >
-              📋 Copy Wallet Address
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(wallet.address);
+                  notify("📋 Wallet address copied to clipboard!");
+                }}
+                style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#ddd", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}
+              >
+                📋 Copy Wallet Address
+              </button>
+              <button
+                onClick={syncOnChainBalance}
+                disabled={refreshingBal}
+                style={{ background: "rgba(16, 185, 129, 0.15)", border: "1px solid rgba(16, 185, 129, 0.4)", borderRadius: 6, color: "var(--em)", padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}
+                title="Detects new POL received from Polygon Faucet and records it into your ledger"
+              >
+                {refreshingBal ? "🔄 Checking..." : "⚡ Sync External Deposits"}
+              </button>
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.4 }}>
+            💡 <em>Notice: Faucets like Alchemy or QuickNode require an existing Ethereum mainnet ETH balance and block empty testnet wallets. Use Polygon's official portal or Chainlink above (100% free, 0 mainnet balance required). Once received, click "Sync External Deposits" to record it in your ledger!</em>
           </div>
         </motion.div>
       )}
 
       {/* Transaction History Card */}
       <motion.div className="card mb2" {...fadeUp(0.2)}>
-        <div className="card-t">Transaction History</div>
+        <div className="btwn mb1" style={{ alignItems: "center" }}>
+          <div className="card-t" style={{ margin: 0 }}>Transaction History</div>
+          <span className="text-s" style={{ fontSize: 12 }}>Click any transaction to inspect on-chain proof</span>
+        </div>
         {txs.length === 0 ? <div className="text-m" style={{ fontSize: 13 }}>No transactions yet</div> : txs.map((tx) => {
           const inc = tx.toId === user._id;
           return (
-            <div key={tx._id} className="btwn" style={{ fontSize: 13, padding: "8px 0", borderBottom: "1px solid var(--border)", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <div
+              key={tx._id}
+              className="btwn"
+              onClick={() => {
+                setModal && setModal(
+                  <BlockchainTxModal
+                    tx={{
+                      ...tx,
+                      block: tx.blockNumber,
+                      from: tx.fromId === "SYSTEM" ? "SYSTEM_AUTHORITY" : (inc ? "SENDER_WALLET" : (user.wallet || user._id)),
+                      to: inc ? (user.wallet || user._id) : "RECIPIENT_WALLET",
+                    }}
+                    close={() => setModal(null)}
+                  />
+                );
+              }}
+              style={{
+                fontSize: 13,
+                padding: "10px 8px",
+                borderBottom: "1px solid var(--border)",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 8,
+                cursor: "pointer",
+                borderRadius: 6,
+                transition: "background 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              title="Click to inspect blockchain receipt"
+            >
               <div className="row" style={{ gap: 10, alignItems: "center" }}>
-                <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : tx.type === "gas_faucet_claim" ? "ta" : "tg"}`}>
-                  {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : tx.type === "gas_faucet_claim" ? "Gas Station" : "Transfer"}
+                <span className={`tag ${tx.type === "aicte_reward" ? "tp" : tx.type === "initial_credits" ? "tb" : (tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? "ta" : "tg"}`}>
+                  {tx.type === "aicte_reward" ? "AICTE" : tx.type === "initial_credits" ? "Starter" : tx.type === "polygon_faucet_deposit" ? "Polygon Deposit" : tx.type === "gas_faucet_claim" ? "Gas Station" : "Transfer"}
                 </span>
                 <div>
                   <div style={{ fontWeight: 600 }}>{tx.desc}</div>
-                  {tx.txHash && (
-                    <a
-                      href={chain.txLink(tx.txHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "var(--em)", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3, marginTop: 2 }}
-                    >
-                      🔗 Polygonscan ({chain.formatAddress(tx.txHash)}) ↗
-                    </a>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                    {tx.blockNumber && (
+                      <span style={{ fontSize: 11.5, color: "var(--purple)", fontFamily: "monospace", fontWeight: 700 }}>
+                        Block #{tx.blockNumber}
+                      </span>
+                    )}
+                    {tx.txHash && (
+                      <span style={{ color: "var(--em)", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                        🔗 Verified ({chain.formatAddress(tx.txHash)})
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <span style={{ fontWeight: 800, fontSize: 14, color: inc ? "var(--em-dark)" : "var(--red)" }}>
-                {inc ? "+" : "-"}{tx.amount}{tx.type === "gas_faucet_claim" ? " POL" : "h"}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontWeight: 800, fontSize: 14, color: (tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? "var(--amber)" : inc ? "var(--em-dark)" : "var(--red)" }}>
+                  {inc ? "+" : "-"}{tx.amount}{(tx.type === "gas_faucet_claim" || tx.type === "polygon_faucet_deposit") ? " POL" : "h"}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--em)" }}>🔍</span>
+              </div>
             </div>
           );
         })}
@@ -2999,28 +3371,58 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
 
       {/* Immutable Blockchain Ledger Feed */}
       <motion.div className="card" {...fadeUp(0.25)}>
-        <div className="btwn mb1" style={{ alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div className="btwn mb1" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
             <div className="card-t" style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
               <span>⛓️ Immutable Blockchain Ledger (Polygon Amoy)</span>
               <span className="tag tg" style={{ fontSize: 10, padding: "2px 8px" }}>Live Feed</span>
             </div>
             <div className="text-s" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
-              Real-time blocks minted and anchored on Polygon Amoy testnet. Click any entry to inspect on Polygonscan.
+              Real-time blocks minted and anchored on Polygon Amoy testnet. Click any entry to inspect details and on-chain proof.
             </div>
           </div>
-          <button className="btn btn-o btn-sm" onClick={loadData} style={{ padding: "4px 10px", fontSize: 12 }}>
-            🔄 Refresh
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: 3, border: "1px solid rgba(255,255,255,0.08)" }}>
+              <button
+                className={`btn btn-sm ${ledgerView === "my" ? "btn-p" : "btn-ghost"}`}
+                onClick={() => setLedgerView("my")}
+                style={{ padding: "4px 12px", fontSize: 11, borderRadius: 6, height: 28, fontWeight: 700 }}
+              >
+                ⭐ My Wallet
+              </button>
+              <button
+                className={`btn btn-sm ${ledgerView === "all" ? "btn-p" : "btn-ghost"}`}
+                onClick={() => setLedgerView("all")}
+                style={{ padding: "4px 12px", fontSize: 11, borderRadius: 6, height: 28, fontWeight: 700 }}
+              >
+                🌐 All Network
+              </button>
+            </div>
+            <button className="btn btn-o btn-sm" onClick={loadData} style={{ padding: "4px 12px", fontSize: 12, height: 28 }}>
+              🔄 Refresh
+            </button>
+          </div>
         </div>
 
         {bcRecords.length === 0 ? (
-          <div className="text-m" style={{ fontSize: 13, padding: "1rem 0" }}>No blockchain ledger records yet. Complete a service or claim gas to see on-chain blocks!</div>
+          <div className="text-m" style={{ fontSize: 13, padding: "1.2rem 0", color: "var(--text-secondary)" }}>
+            {ledgerView === "my"
+              ? "No personal blockchain transactions found for this wallet yet. Complete a skill exchange, claim gas, or sync external deposits to see your on-chain blocks!"
+              : "No network ledger records yet. All new blocks will stream live here."}
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {bcRecords.map((r) => (
               <div
                 key={r._id}
+                onClick={() => {
+                  setModal && setModal(
+                    <BlockchainTxModal
+                      tx={{ ...r, blockNumber: r.block }}
+                      close={() => setModal(null)}
+                    />
+                  );
+                }}
                 style={{
                   background: "rgba(255,255,255,0.02)",
                   border: "1px solid var(--border)",
@@ -3031,17 +3433,28 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
                   alignItems: "center",
                   flexWrap: "wrap",
                   gap: 8,
+                  cursor: "pointer",
+                  transition: "border-color 0.2s ease, background 0.2s ease",
                 }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(16, 185, 129, 0.4)";
+                  e.currentTarget.style.background = "rgba(16, 185, 129, 0.04)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                }}
+                title="Click to inspect on-chain ledger proof"
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span className={`tag ${r.type === "AICTE_MINT" || r.type === "MINT" ? "tp" : r.type === "GAS_DRIP" ? "ta" : "tg"}`} style={{ fontWeight: 700, fontSize: 11 }}>
+                  <span className={`tag ${r.type === "AICTE_MINT" || r.type === "MINT" ? "tp" : (r.type === "GAS_DRIP" || r.type === "GAS_DEPOSIT") ? "ta" : "tg"}`} style={{ fontWeight: 700, fontSize: 11 }}>
                     {r.type}
                   </span>
                   <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--purple)", fontWeight: 700 }}>
                     Block #{r.block}
                   </span>
                   <span style={{ fontSize: 12.5, color: "#fff", fontWeight: 600 }}>
-                    {r.amount} {r.type === "GAS_DRIP" ? "POL" : "Credits"}
+                    {r.amount} {(r.type === "GAS_DRIP" || r.type === "GAS_DEPOSIT") ? "POL" : "Credits"}
                   </span>
                   <span className="text-m" style={{ fontSize: 11.5, fontFamily: "monospace" }}>
                     {chain.formatAddress(r.from)} → {chain.formatAddress(r.to)}
@@ -3050,9 +3463,10 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser })
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <a
-                    href={chain.txLink(r.txHash)}
+                    href={r.block ? chain.blockLink(r.block) : chain.txLink(r.txHash)}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -3378,6 +3792,8 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
   const [tab, setTab] = useState("overview");
   const [institutionAdmins, setInstitutionAdmins] = useState([]);
   const [aicteInputs, setAicteInputs] = useState({});
+  const [pendingStudents, setPendingStudents] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
 
   useEffect(() => {
     if (!prefix) return;
@@ -3388,6 +3804,10 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
     
     if (prefix === "website-admin") {
       api.fetchInstitutionAdmins().then(setInstitutionAdmins).catch(() => {});
+    }
+    if (prefix === "college-admin") {
+      setStudentsLoading(true);
+      api.fetchPendingStudents().then(setPendingStudents).catch(() => {}).finally(() => setStudentsLoading(false));
     }
   }, [prefix]);
 
@@ -3476,9 +3896,17 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       )}
 
       <div className="tab-bar">
-        {["overview", ...(prefix === "college-admin" ? ["verify"] : []), "users", "bookings", "fraud", ...(prefix === "website-admin" ? ["admins", "ml_dashboard"] : [])].map((t) => (
+        {["overview",
+          ...(prefix === "college-admin" ? ["students", "verify"] : []),
+          "users", "bookings", "fraud",
+          ...(prefix === "website-admin" ? ["admins", "ml_dashboard"] : [])
+        ].map((t) => (
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-            {t === "fraud" ? "🛡️ Fraud Queue" : t.charAt(0).toUpperCase() + t.slice(1)} {t === "fraud" && fraudQueue.length > 0 ? `(${fraudQueue.length})` : t === "verify" && pendingAicte.length > 0 ? `(${pendingAicte.length})` : ""}
+            {t === "fraud" ? "🛡️ Fraud Queue"
+              : t === "students" ? `🎓 Students${pendingStudents.length > 0 ? ` (${pendingStudents.length})` : ""}`
+              : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "fraud" && fraudQueue.length > 0 ? ` (${fraudQueue.length})` : ""}
+            {t === "verify" && pendingAicte.length > 0 ? ` (${pendingAicte.length})` : ""}
           </button>
         ))}
       </div>
@@ -3499,6 +3927,102 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
               <div className={`stat-v ${st.c || ""}`}>{st.v}</div>
             </motion.div>
           ))}
+        </motion.div>
+      )}
+
+      {/* ─── PENDING STUDENTS TAB ─── */}
+      {tab === "students" && (
+        <motion.div variants={stagger} initial="initial" animate="animate">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <h3 style={{ color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+              🎓 Pending Student Approvals ({pendingStudents.length})
+            </h3>
+            <button
+              className="btn btn-o btn-sm"
+              onClick={() => { setStudentsLoading(true); api.fetchPendingStudents().then(setPendingStudents).catch(() => {}).finally(() => setStudentsLoading(false)); }}
+            >
+              Refresh
+            </button>
+          </div>
+          {studentsLoading ? (
+            <div className="empty">Loading pending students…</div>
+          ) : pendingStudents.length === 0 ? (
+            <div className="empty">✓ No students pending approval. All caught up!</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {pendingStudents.map((s) => (
+                <motion.div key={s._id} className="card" variants={fadeUp()} style={{
+                  background: "rgba(12,15,23,0.8)",
+                  border: "1px solid rgba(251,191,36,0.2)",
+                }}>
+                  <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+                    {/* ID Card image */}
+                    <div style={{ flexShrink: 0 }}>
+                      {s.idCardImage ? (
+                        <img
+                          src={s.idCardImage}
+                          alt="ID Card"
+                          style={{
+                            width: 100, height: 70, objectFit: "cover",
+                            borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)",
+                            cursor: "pointer",
+                          }}
+                          onClick={() => window.open(s.idCardImage, "_blank")}
+                          title="Click to view full size"
+                        />
+                      ) : (
+                        <div style={{
+                          width: 100, height: 70, borderRadius: 8,
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 24, color: "#475569",
+                        }}>🪪</div>
+                      )}
+                    </div>
+                    {/* Student info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: "#fff", fontSize: 14, marginBottom: 2 }}>{s.name}</div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>{s.email}</div>
+                      <div style={{ fontSize: 11.5, color: "#64748b" }}>
+                        {s.college || "No college"} · Applied {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "recently"}
+                      </div>
+                    </div>
+                    {/* Actions */}
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", padding: "6px 14px", height: "auto" }}
+                        onClick={async () => {
+                          try {
+                            await api.approveStudent(s._id, "approved");
+                            setPendingStudents(prev => prev.filter(x => x._id !== s._id));
+                            notify(`${s.name} approved! They can now log in.`, "ok");
+                          } catch (e) { notify(e.message, "err"); }
+                        }}
+                      >
+                        ✓ Approve
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", padding: "6px 14px", height: "auto" }}
+                        onClick={async () => {
+                          const reason = prompt(`Reason for rejecting ${s.name}'s application (optional):`) || "";
+                          try {
+                            await api.approveStudent(s._id, "rejected", reason);
+                            setPendingStudents(prev => prev.filter(x => x._id !== s._id));
+                            notify(`${s.name}'s application rejected.`, "info");
+                          } catch (e) { notify(e.message, "err"); }
+                        }}
+                      >
+                        ✕ Reject
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </motion.div>
       )}
 
