@@ -300,7 +300,7 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                 Full Legal Name <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <input
-                placeholder="e.g. Prasad Bhat"
+                placeholder="Enter your full legal name"
                 style={inputStyle}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -312,7 +312,7 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                 {role === 'student' ? 'College Email Address' : 'Email Address'} <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <input
-                placeholder={role === 'student' ? 'name@college.edu.in' : 'your@email.com'}
+                placeholder={role === 'student' ? 'Enter your college email' : 'Enter your email address'}
                 style={inputStyle}
                 type="email"
                 value={form.email}
@@ -360,7 +360,7 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                     College ID / USN Number
                   </label>
                   <input
-                    placeholder="e.g. 1MS21CS001"
+                    placeholder="Enter College ID / USN"
                     style={inputStyle}
                     value={form.collegeIdNumber}
                     onChange={(e) => setForm({ ...form, collegeIdNumber: e.target.value })}
@@ -374,7 +374,7 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                 Phone Number (Optional)
               </label>
               <input
-                placeholder="+91 98765 43210"
+                placeholder="Enter phone number (optional)"
                 style={inputStyle}
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -386,7 +386,7 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                 Create Password (min 6 characters) <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <input
-                placeholder="••••••••"
+                placeholder="Enter password (min 6 characters)"
                 type="password"
                 style={inputStyle}
                 value={form.password}

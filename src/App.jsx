@@ -2261,7 +2261,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                       type="email"
                       value={le}
                       onChange={(e) => setLe(e.target.value)}
-                      placeholder="yourname@college.edu.in or your@email.com"
+                      placeholder="Enter your email address"
                       onKeyDown={(e) => e.key === "Enter" && !loginOtpSent && handleSendLoginOtp()}
                       style={{ height: 44, fontSize: 14 }}
                     />
@@ -2381,11 +2381,11 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                 <div>
                   <div className="field" style={{ marginBottom: "1rem" }}>
                     <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Email Address</label>
-                    <input className="fi" value={le} onChange={(e) => setLe(e.target.value)} placeholder="your@email.com" style={{ height: 44 }} />
+                    <input className="fi" value={le} onChange={(e) => setLe(e.target.value)} placeholder="Enter your email address" style={{ height: 44 }} />
                   </div>
                   <div className="field" style={{ marginBottom: "0.5rem" }}>
                     <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Password</label>
-                    <input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} style={{ height: 44 }} />
+                    <input className="fi" type="password" value={lp} onChange={(e) => setLp(e.target.value)} placeholder="Enter your password" onKeyDown={(e) => e.key === "Enter" && handleLoginSubmit()} style={{ height: 44 }} />
                   </div>
 
                   {/* Biometric Face Scan for Password Login */}
@@ -2486,7 +2486,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
               </div>
               <div className="field" style={{ marginBottom: "1.25rem" }}>
                 <label style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Email Address</label>
-                <input className="fi" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="your@email.com" style={{ height: 44 }} />
+                <input className="fi" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="Enter your email address" style={{ height: 44 }} />
               </div>
               <button className="btn btn-p" onClick={() => { setError(""); alert("Reset instructions dispatched to " + forgotEmail); setTab("login"); }} style={{ marginBottom: "0.75rem", width: "100%", height: 44, justifyContent: "center", fontSize: 14, fontWeight: 700 }}>
                 Send Reset Link
@@ -2503,7 +2503,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
 }
 
 function WebsiteAdminLogin({ doLogin }) {
-  const [ae, setAe] = useState("admin@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [ae, setAe] = useState(""), [ap, setAp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -2534,8 +2534,8 @@ function WebsiteAdminLogin({ doLogin }) {
               {error}
             </div>
           )}
-          <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="admin@timebank.com" /></div>
-          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
+          <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="Enter admin email" /></div>
+          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Enter admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
           <button className="btn btn-p" style={{ background: "rgba(139,92,246,0.15)", border: "1px solid var(--purple)", color: "#fff", boxShadow: "none" }} onClick={handleAdminSubmit} disabled={loading}>
             {loading ? "Authenticating..." : "Sign in as Website Admin"}
           </button>
@@ -2546,7 +2546,7 @@ function WebsiteAdminLogin({ doLogin }) {
 }
 
 function CollegeAdminLogin({ doLogin }) {
-  const [ae, setAe] = useState("college@timebank.com"), [ap, setAp] = useState("admin@123");
+  const [ae, setAe] = useState(""), [ap, setAp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -2577,8 +2577,8 @@ function CollegeAdminLogin({ doLogin }) {
               {error}
             </div>
           )}
-          <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="college@timebank.com" /></div>
-          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
+          <div className="field"><label>Admin Email</label><input className="fi" value={ae} onChange={(e) => setAe(e.target.value)} placeholder="Enter college admin email" /></div>
+          <div className="field"><label>Password</label><input className="fi" type="password" value={ap} onChange={(e) => setAp(e.target.value)} placeholder="Enter admin password" onKeyDown={(e) => e.key === "Enter" && handleAdminSubmit()} /></div>
           <button className="btn btn-p" style={{ background: "rgba(139,92,246,0.15)", border: "1px solid var(--purple)", color: "#fff", boxShadow: "none" }} onClick={handleAdminSubmit} disabled={loading}>
             {loading ? "Authenticating..." : "Sign in as College Admin"}
           </button>
@@ -4696,7 +4696,7 @@ export function AddContactModal({ user, close, notify, setEmergency }) {
       </div>
       <div className="field">
         <label>Phone</label>
-        <input className="fi" placeholder="+91 98765 43210" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <input className="fi" placeholder="Enter phone number" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
       <div className="field">
         <label>Relation</label>
