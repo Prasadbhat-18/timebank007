@@ -1889,3 +1889,15 @@ select.fi option {
   50% { opacity: 0.4; }
 }
 
+/* ─── HIDE NETLIFY BADGE / DRAWER ────────────────────────────────────────── */
+#netlify-drawer,
+[data-netlify-drawer],
+.netlify-feedback-drawer,
+iframe[title="Netlify Drawer"],
+div[class*="netlify-drawer"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+

@@ -10,6 +10,7 @@
   NODE_VERSION = "20"
   NPM_FLAGS = "--include=dev"
   NODE_ENV = "development"
+  NETLIFY_DISABLE_DRAWER = "true"
 
 # Route all /api requests directly to Netlify serverless function
 [[redirects]]
