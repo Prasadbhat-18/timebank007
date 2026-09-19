@@ -8,6 +8,8 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
+  NODE_ENV = "development"
 
 # Route all /api requests directly to Netlify serverless function
 [[redirects]]
