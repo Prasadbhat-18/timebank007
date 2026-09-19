@@ -1,5 +1,5 @@
 // ─── public/sw.js — TimeBank Service Worker & Push Notification Handler ───────
-const CACHE_NAME = "timebank-pwa-v1";
+const CACHE_NAME = "timebank-pwa-v2";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -76,7 +76,6 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-      // Check if there is already a window open with this app
       for (const client of windowClients) {
         if ("focus" in client) {
           client.focus();
@@ -86,7 +85,6 @@ self.addEventListener("notificationclick", (event) => {
           return;
         }
       }
-      // If no window is open, open a new window
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
@@ -94,12 +92,28 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Fetch Event: Cache-first for images/fonts, network-first for navigation, bypass for API
+// Fetch Event: Network-first for navigation, cache-first for fonts/images, bypass for API
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
   // Bypass API requests and socket.io
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/socket.io/")) {
+    return;
+  }
+
+  // Network-first for HTML navigation so deployments take effect immediately
+  if (event.request.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html") {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request) || caches.match("/index.html"))
+    );
     return;
   }
 

@@ -2,14 +2,22 @@
 import * as api from "./api.js";
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+  if (!base64String || typeof base64String !== "string") {
+    throw new Error("Invalid VAPID public key string.");
   }
-  return outputArray;
+  const cleanKey = base64String.trim();
+  const padding = "=".repeat((4 - (cleanKey.length % 4)) % 4);
+  const base64 = (cleanKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+  try {
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch {
+    throw new Error("Unable to decode VAPID public key. Please verify VAPID configuration on the server.");
+  }
 }
 
 export function isPushSupported() {
@@ -53,9 +61,12 @@ export async function subscribeToPush() {
     throw new Error("Service Worker is not ready.");
   }
 
-  const { publicKey } = await api.fetchVapidPublicKey();
-  if (!publicKey) {
-    throw new Error("Server did not return a valid VAPID public key.");
+  const keyRes = await api.fetchVapidPublicKey().catch((e) => {
+    throw new Error(`Failed to retrieve VAPID key from server: ${e.message}`);
+  });
+  const publicKey = keyRes?.publicKey;
+  if (!publicKey || typeof publicKey !== "string" || publicKey.length < 20) {
+    throw new Error(keyRes?.error || "VAPID public key is not configured on the server. Please check environment variables.");
   }
 
   const convertedVapidKey = urlBase64ToUint8Array(publicKey);

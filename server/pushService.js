@@ -54,7 +54,17 @@ if (vapidPublicKey && vapidPrivateKey) {
 }
 
 export function getVapidPublicKey() {
-  return vapidPublicKey;
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    try {
+      const keys = webpush.generateVAPIDKeys();
+      vapidPublicKey = keys.publicKey;
+      vapidPrivateKey = keys.privateKey;
+      process.env.VAPID_PUBLIC_KEY = vapidPublicKey;
+      process.env.VAPID_PRIVATE_KEY = vapidPrivateKey;
+      webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    } catch {}
+  }
+  return vapidPublicKey || "";
 }
 
 /**

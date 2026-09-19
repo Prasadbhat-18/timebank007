@@ -697,10 +697,10 @@ r.post("/auth/send-otp", async (req, res) => {
     // Check if this domain belongs to a recognized college
     const college = await College.findOne({ emailDomain: domain.toLowerCase() });
 
-    // Generate 6-digit OTP code with 3-minute validity
+    // Generate 6-digit OTP code with 15-minute validity
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const magicToken = crypto.randomBytes(24).toString("hex");
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
     await Otp.create({
       email: cleanEmail,
@@ -757,7 +757,7 @@ r.post("/auth/verify-otp", async (req, res) => {
     }
 
     const cleanEmail = email.toLowerCase().trim();
-    const cleanOtp = String(otp).trim();
+    const cleanOtp = String(otp || "").trim().replace(/\D/g, "");
 
     const otpDoc = await Otp.findOne({
       email: cleanEmail,
@@ -767,7 +767,17 @@ r.post("/auth/verify-otp", async (req, res) => {
     }).sort({ createdAt: -1 });
 
     if (!otpDoc) {
-      return res.status(400).json({ error: "Invalid or expired verification code. Please request a new code." });
+      const anyOtp = await Otp.findOne({ email: cleanEmail }).sort({ createdAt: -1 });
+      if (!anyOtp) {
+        return res.status(400).json({ error: "No verification code was requested for this email. Please click 'Send Code' first." });
+      }
+      if (anyOtp.used) {
+        return res.status(400).json({ error: "This verification code has already been used. Please click 'Resend Code'." });
+      }
+      if (anyOtp.expiresAt <= new Date()) {
+        return res.status(400).json({ error: "Verification code has expired. Please click 'Resend Code'." });
+      }
+      return res.status(400).json({ error: "Invalid verification code. Please check your email and enter the latest 6-digit code." });
     }
 
     otpDoc.used = true;
@@ -2214,7 +2224,8 @@ r.post("/blockchain/deploy-contract", requireAuth, async (req, res) => {
       ...result,
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error("[Deploy Contract Notice]:", e.message);
+    res.status(400).json({ error: e.message || "Contract deployment failed." });
   }
 });
 
