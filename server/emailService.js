@@ -132,7 +132,7 @@ async function dispatchEmail({ to, subject, text, html }) {
  * Dispatches OTP email to user's inbox via configured SMTP (Gmail)
  */
 export async function sendOtpEmail({ to, code, magicToken, collegeName = "TimeBank", type = "login" }) {
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "http://localhost:5173";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const magicLink = `${clientUrl}/#magic-login/${magicToken}`;
   const subject = "Your TimeBank Verification Code";
 
@@ -215,7 +215,7 @@ If you did not request this verification code, you can safely ignore this email.
  * Dispatches a real-time email to a student when their college admin approves or rejects their ID card
  */
 export async function sendStudentApprovalDecisionEmail({ to, studentName = "Student", collegeName = "Your Institution", decision, note = "" }) {
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "http://localhost:5173";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const isApproved = decision === "approved";
 
   const subject = isApproved
@@ -345,7 +345,7 @@ Visit TimeBank: ${clientUrl}/#auth
  * Dispatches an email to the college administrator when a new student uploads their ID card
  */
 export async function sendCollegeAdminPendingStudentEmail({ to, adminName = "Administrator", studentName, studentEmail, collegeName, collegeIdNumber }) {
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "http://localhost:5173";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const subject = `🎓 New Student Verification Request: ${studentName} - TimeBank`;
 
   const textContent = `Hello ${adminName},

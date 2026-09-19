@@ -100,7 +100,7 @@ In Netlify, go to **Site configuration** > **Environment variables** > **Add a v
 |---|---|---|
 | `MONGODB_URI` | MongoDB Atlas Connection String | `mongodb+srv://...` |
 | `JWT_SECRET` | Secret key for signing user tokens | Random 32+ char string |
-| `CLIENT_URL` | Your Netlify site domain | `https://your-site.netlify.app` |
+| `CLIENT_URL` | Your Netlify site domain | `https://timebank017.netlify.app` |
 | `SMTP_HOST` | SMTP server host | `smtp.gmail.com` |
 | `SMTP_PORT` | SMTP port | `587` |
 | `SMTP_SECURE` | TLS / STARTTLS | `false` |
@@ -117,5 +117,5 @@ In Netlify, go to **Site configuration** > **Environment variables** > **Add a v
 ### Step D: Trigger Deploy
 Click **Deploy site**. Netlify will run `npm run build`, bundle `netlify/functions/api.js`, and deploy the application live.
 Once deployed, verify:
-- `https://your-site.netlify.app/api/health` returns status `200` with `dbConnected: true`.
+- `https://timebank017.netlify.app/api/health` returns status `200` with `dbConnected: true`.
 - Testing student registration, college admin review, and real-time emails.
