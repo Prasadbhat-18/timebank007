@@ -7,17 +7,29 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Dependencies
+node_modules/
+
+# Production builds
+dist/
+dist-ssr/
+
+# Netlify
+.netlify/
+.netlify
+
+# Environment files
 .env
+.env.*
+!.env.example
+*.local
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+
 # Python & ML artifacts
 __pycache__/
 *.py[cod]
@@ -25,3 +37,9 @@ __pycache__/
 *.pkl
 ml/models/*.pkl
 ml/dataset/*.csv
+
+# Critical assets that MUST NOT be ignored
+!public/models/
+!public/models/**
+!contracts/
+!netlify/

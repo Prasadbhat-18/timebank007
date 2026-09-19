@@ -89,6 +89,17 @@ const userSchema = new Schema({
   faceDescriptor:     [{ type: Number }],           // 128-dim face embedding from face-api.js
   deviceFingerprints: [{ type: String }],            // known FingerprintJS visitorIds
 
+  // ── Web Push Subscriptions ──
+  pushSubscriptions: [{
+    endpoint:  { type: String, required: true },
+    keys: {
+      p256dh:  { type: String, required: true },
+      auth:    { type: String, required: true },
+    },
+    userAgent: { type: String, default: "" },
+    createdAt: { type: Date, default: Date.now },
+  }],
+
   // ── Fraud & Multi-Layer Security ──
   phoneHash:          { type: String, sparse: true },
   idNumberHash:       { type: String, sparse: true },
@@ -301,7 +312,7 @@ const otpSchema = new Schema({
   email:     { type: String, required: true, lowercase: true, trim: true, index: true },
   code:      { type: String, required: true },
   token:     { type: String, default: null }, // for magic link
-  type:      { type: String, enum: ["login", "register", "verify_email"], default: "login" },
+  type:      { type: String, enum: ["login", "register", "verify_email", "signup"], default: "login" },
   expiresAt: { type: Date, required: true },
   used:      { type: Boolean, default: false },
 }, { timestamps: true });

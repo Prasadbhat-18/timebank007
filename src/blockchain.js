@@ -186,3 +186,39 @@ export function addressLink(addr) {
 export function blockLink(blockNum) {
   return `${EXPLORER_URL}block/${blockNum}`;
 }
+
+export function tokenLink(contractAddr) {
+  return `${EXPLORER_URL}token/${contractAddr}`;
+}
+
+export async function watchTokenInWallet(contractAddress, symbol = "TBC", decimals = 18, image = "") {
+  if (!window.ethereum) {
+    throw new Error("MetaMask or Web3 wallet not detected. Please install MetaMask to import tokens directly.");
+  }
+  return await window.ethereum.request({
+    method: "wallet_watchAsset",
+    params: {
+      type: "ERC20",
+      options: {
+        address: contractAddress,
+        symbol: symbol,
+        decimals: decimals,
+        image: image || `${window.location.origin}/favicon.svg`,
+      },
+    },
+  });
+}
+
+export async function getTokenBalance(provider, userAddress, contractAddress) {
+  if (!provider || !userAddress || !contractAddress) return "0";
+  try {
+    const minAbi = ["function balanceOf(address account) view returns (uint256)"];
+    const contract = new ethers.Contract(contractAddress, minAbi, provider);
+    const bal = await contract.balanceOf(userAddress);
+    return ethers.formatUnits(bal, 18);
+  } catch (e) {
+    console.warn("Failed to get token balance:", e.message);
+    return "0";
+  }
+}
+

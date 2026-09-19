@@ -1,6 +1,7 @@
 // ─── server/relayerService.js ────────────────────────────────────────────────
 import { ethers } from "ethers";
 import crypto from "crypto";
+import { TimeCreditArtifact } from "../contracts/TimeCreditArtifact.js";
 
 const AMOY_CHAIN_ID = 80002;
 const AMOY_RPC_URLS = [
@@ -17,6 +18,27 @@ const DEFAULT_RELAYER_KEY =
 
 let providerInstance = null;
 let relayerWallet = null;
+
+export function getContractAddress() {
+  return process.env.TIMECREDIT_CONTRACT_ADDRESS || null;
+}
+
+export function setContractAddress(addr) {
+  process.env.TIMECREDIT_CONTRACT_ADDRESS = addr;
+}
+
+export async function getTimeCreditContract(signerOrProvider) {
+  const address = getContractAddress();
+  if (!address) return null;
+  const sp = signerOrProvider || (await getRelayerSigner()) || (await getProvider());
+  if (!sp) return null;
+  try {
+    return new ethers.Contract(address, TimeCreditArtifact.abi, sp);
+  } catch (err) {
+    console.warn("[Relayer] Failed to instantiate contract:", err.message);
+    return null;
+  }
+}
 
 // Initialize connection to Polygon Amoy RPC
 export async function getProvider() {
@@ -110,6 +132,7 @@ export async function getRelayerStatus() {
     }
 
     const hasOnChainGas = parseFloat(balance) > 0.001;
+    const contractAddr = getContractAddress();
 
     return {
       address: signer.address,
@@ -120,9 +143,15 @@ export async function getRelayerStatus() {
       liveBlockNumber: liveBlock,
       gasPriceGwei: parseFloat(feeGwei).toFixed(1),
       hasOnChainGas,
+      contractAddress: contractAddr,
+      tokenSymbol: "TBC",
+      tokenName: "TimeBank Credit",
+      tokenDecimals: 18,
+      tokenExplorerUrl: contractAddr ? `${EXPLORER_BASE}token/${contractAddr}` : null,
       explorerUrl: `${EXPLORER_BASE}address/${signer.address}`,
     };
   } catch (e) {
+    const fallbackAddr = getContractAddress();
     return {
       address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
       balance: "0.0000",
@@ -131,6 +160,11 @@ export async function getRelayerStatus() {
       currentBlock: liveBlock,
       liveBlockNumber: liveBlock,
       hasOnChainGas: false,
+      contractAddress: fallbackAddr,
+      tokenSymbol: "TBC",
+      tokenName: "TimeBank Credit",
+      tokenDecimals: 18,
+      tokenExplorerUrl: fallbackAddr ? `${EXPLORER_BASE}token/${fallbackAddr}` : null,
       explorerUrl: `${EXPLORER_BASE}address/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`,
     };
   }
@@ -223,6 +257,32 @@ export async function relayCreditTransfer(toAddress, credits = 1, metadata = {})
       const gasPrice = feeData.gasPrice || ethers.parseUnits("35", "gwei");
       const estimatedFee = gasLimit * gasPrice;
 
+      // 1. Try ERC-20 TimeCredit smart contract transaction if deployed
+      const contract = await getTimeCreditContract(signer);
+      if (contract && bal > estimatedFee) {
+        try {
+          const tokenAmount = ethers.parseUnits(String(Math.max(1, Number(credits))), 18);
+          console.log(`[Relayer] Minting ${credits} TBC tokens on-chain to ${safeAddress} via contract ${contract.target}...`);
+          const tx = await contract.mint(safeAddress, tokenAmount, {
+            gasLimit: 85000n,
+            gasPrice,
+          });
+          const receipt = await tx.wait(1);
+          console.log(`[Relayer] Contract mint confirmed in block ${receipt.blockNumber}! Tx: ${receipt.hash}`);
+          return {
+            success: true,
+            txHash: receipt.hash,
+            blockNumber: receipt.blockNumber,
+            contractAddress: contract.target,
+            explorerUrl: `${EXPLORER_BASE}tx/${receipt.hash}`,
+            isStateProof: false,
+          };
+        } catch (contractErr) {
+          console.warn("[Relayer] Contract mint error:", contractErr.message);
+        }
+      }
+
+      // 2. Direct micro-POL fallback transfer if contract not active
       if (bal > estimatedFee) {
         let sendValue = ethers.parseEther((0.0001 * Number(credits)).toFixed(6));
         if (bal < sendValue + estimatedFee) {

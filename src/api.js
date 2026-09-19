@@ -33,7 +33,19 @@ async function req(path, opts = {}) {
       };
     }
   }
-  if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.error || data.message || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.code = data.code;
+    err.matchedEmail = data.matchedEmail;
+    err.matchedName = data.matchedName;
+    err.duplicateFace = data.duplicateFace || (data.reasons && data.reasons.includes("FACE_MATCH"));
+    err.reasons = data.reasons;
+    err.waitingApproval = data.waitingApproval;
+    err.userId = data.userId;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -55,8 +67,11 @@ export const registerGeneral = (data) =>
 export const sendOtp = (email, type = "login") =>
   req("/auth/send-otp", { method: "POST", body: JSON.stringify({ email, type }) });
 
-export const verifyOtp = (email, otp, deviceFingerprint, faceDescriptor) =>
-  req("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp, deviceFingerprint, faceDescriptor }) });
+export const verifyOtp = (email, otp, deviceFingerprint, faceDescriptor, type = "login") =>
+  req("/auth/verify-otp", { method: "POST", body: JSON.stringify({ email, otp, deviceFingerprint, faceDescriptor, type }) });
+
+export const checkFaceDuplicate = (faceDescriptor, email) =>
+  req("/auth/check-face", { method: "POST", body: JSON.stringify({ faceDescriptor, email }) });
 
 export const magicLogin = (token) =>
   req(`/auth/magic-login/${token}`);
@@ -241,6 +256,19 @@ export const syncOnChainGas = () =>
   req("/faucet/sync-onchain", { method: "POST" });
 export const relayTransfer = (data) =>
   req("/blockchain/relay-transfer", { method: "POST", body: JSON.stringify(data) });
+export const fetchContractInfo = () => req("/blockchain/contract-info");
+export const deployContract = (data = {}) =>
+  req("/blockchain/deploy-contract", { method: "POST", body: JSON.stringify(data) });
+
+// ─── Push Notifications ──────────────────────────────────────────────────────
+export const fetchVapidPublicKey = () => req("/notifications/vapid-public-key");
+export const subscribePush = (subscription) =>
+  req("/notifications/subscribe", { method: "POST", body: JSON.stringify({ subscription }) });
+export const unsubscribePush = (endpoint) =>
+  req("/notifications/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) });
+export const sendTestPush = () =>
+  req("/notifications/test-push", { method: "POST" });
+
 
 // ─── Admin ───────────────────────────────────────────────────────────────────
 export const fetchAdminStats = (prefix) => req(`/${prefix}/stats`);

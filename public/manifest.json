@@ -1,0 +1,42 @@
+{
+  "name": "TimeBank — Peer-to-Peer Skill & Academic Exchange",
+  "short_name": "TimeBank",
+  "description": "Exchange skills, earn academic AICTE credits, and track verifiable hours on Polygon Amoy blockchain.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#05070c",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["education", "finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Wallet & Gas",
+      "short_name": "Wallet",
+      "description": "Inspect blockchain balance and claim testnet gas",
+      "url": "/wallet",
+      "icons": [{ "src": "/favicon.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "My Bookings",
+      "short_name": "Bookings",
+      "description": "View and manage active skill exchange sessions",
+      "url": "/bookings",
+      "icons": [{ "src": "/favicon.svg", "sizes": "96x96" }]
+    }
+  ]
+}

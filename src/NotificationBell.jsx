@@ -2,6 +2,13 @@ import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 import { motion, AnimatePresence } from "framer-motion";
 import * as api from "./api.js";
+import {
+  isPushSupported,
+  getPushPermission,
+  subscribeToPush,
+  unsubscribeFromPush,
+  checkCurrentSubscription,
+} from "./pushManager.js";
 
 const NOTIF_ICONS = {
   verification_decision: "🛡️",
@@ -28,6 +35,45 @@ export default function NotificationBell({ user, notify }) {
 
   const token = localStorage.getItem("token");
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const [pushStatus, setPushStatus] = useState("default");
+  const [pushLoading, setPushLoading] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  useEffect(() => {
+    setPushStatus(getPushPermission());
+    checkCurrentSubscription().then((sub) => setIsSubscribed(Boolean(sub)));
+  }, []);
+
+  const handleTogglePush = async () => {
+    setPushLoading(true);
+    try {
+      if (isSubscribed) {
+        await unsubscribeFromPush();
+        setIsSubscribed(false);
+        if (notify) notify("🔕 Web Push notifications disabled on this device.", "info");
+      } else {
+        await subscribeToPush();
+        setIsSubscribed(true);
+        setPushStatus("granted");
+        if (notify) notify("🔔 Web Push notifications enabled! You'll receive real-time offline alerts.", "success");
+      }
+    } catch (err) {
+      console.warn("Push toggle error:", err);
+      if (notify) notify(`Push error: ${err.message}`, "warning");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    try {
+      await api.sendTestPush();
+      if (notify) notify("🚀 Sample test push dispatched to your device!", "success");
+    } catch (err) {
+      if (notify) notify(`Test push failed: ${err.message}`, "error");
+    }
+  };
 
   // Load existing notifications on mount & user change
   useEffect(() => {
@@ -207,6 +253,62 @@ export default function NotificationBell({ user, notify }) {
                 </button>
               )}
             </div>
+
+            {/* Web Push Offline Alerts Banner */}
+            {isPushSupported() && (
+              <div
+                style={{
+                  padding: "8px 14px",
+                  background: isSubscribed ? "rgba(16, 185, 129, 0.08)" : "rgba(255, 255, 255, 0.03)",
+                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontSize: 11.5,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{isSubscribed ? "🟢 Offline Push Active" : "📲 Offline Push Alerts"}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {isSubscribed && (
+                    <button
+                      type="button"
+                      onClick={handleTestPush}
+                      style={{
+                        background: "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid rgba(255, 255, 255, 0.15)",
+                        borderRadius: 4,
+                        color: "#ddd",
+                        fontSize: 10.5,
+                        padding: "2px 6px",
+                        cursor: "pointer",
+                      }}
+                      title="Send a sample test push alert to verify delivery"
+                    >
+                      Test
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleTogglePush}
+                    disabled={pushLoading}
+                    style={{
+                      background: isSubscribed ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.2)",
+                      border: isSubscribed ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(16, 185, 129, 0.4)",
+                      borderRadius: 4,
+                      color: isSubscribed ? "#ef4444" : "var(--em)",
+                      fontWeight: 700,
+                      fontSize: 10.5,
+                      padding: "2px 8px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {pushLoading ? "..." : isSubscribed ? "Turn Off" : "Turn On"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* List */}
             <div style={{ flex: 1, overflowY: "auto", maxHeight: 360, padding: 6 }}>

@@ -2,6 +2,7 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Notification } from "./models.js";
+import { sendPushToUser } from "./pushService.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
 const userSockets = new Map(); // userId -> Set of socketIds
@@ -151,6 +152,17 @@ export async function pushNotification(userId, { type, title, body, message, dat
         createdAt: notif.createdAt,
       });
     }
+
+    // Also trigger native Web Push alert for offline / mobile background notification
+    const pushTitle = title || "TimeBank Alert 🔔";
+    const pushBody = bodyText || msgText || "You have a new update in TimeBank";
+    const pushUrl = (data && data.url) || (type === "booking" ? "/bookings" : type === "verification_decision" ? "/dashboard" : "/");
+    sendPushToUser(userId, {
+      title: pushTitle,
+      body: pushBody,
+      url: pushUrl,
+      data: { type, ...data },
+    }).catch((err) => console.warn("[WebPush] Sockets dispatch failed:", err.message));
 
     return notif;
   } catch (err) {

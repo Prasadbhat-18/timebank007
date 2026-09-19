@@ -14,7 +14,7 @@ import {
 } from "./fraudService.js";
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
 import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
-import { sendOtpEmail } from "./emailService.js";
+import { sendOtpEmail, sendStudentApprovalDecisionEmail, sendCollegeAdminPendingStudentEmail } from "./emailService.js";
 import * as relayer from "./relayerService.js";
 import fs from "fs";
 import path from "path";
@@ -26,6 +26,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
 function generateToken(user) {
   return jwt.sign({ id: user._id, role: user.role, college: user.college, collegeId: user.collegeId }, JWT_SECRET, { expiresIn: "7d" });
 }
+
+const escapeRegex = (str) => String(str || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -639,6 +641,21 @@ r.get("/auth/me", requireAuth, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
+    if (user.role === "student" && user.approvalStatus === "pending") {
+      return res.status(403).json({
+        error: "Your student account is pending college administrator approval.",
+        waitingApproval: true,
+        userId: user._id,
+      });
+    }
+
+    if (user.role === "student" && user.approvalStatus === "rejected") {
+      return res.status(403).json({
+        error: `Your account application was rejected. ${user.approvalNote ? "Reason: " + user.approvalNote : "Please contact your college administration."}`,
+        rejected: true,
+      });
+    }
+
     // Update last active
     user.lastActiveAt = new Date();
     await user.save();
@@ -662,6 +679,19 @@ r.post("/auth/send-otp", async (req, res) => {
     }
 
     const cleanEmail = email.toLowerCase().trim();
+
+    // If registering, reject upfront if an account with this email already exists
+    if (type === "register") {
+      const existingUser = await User.findOne({ email: cleanEmail });
+      if (existingUser) {
+        return res.status(409).json({
+          error: `An account with ${cleanEmail} already exists. Please sign in instead.`,
+          code: "EMAIL_EXISTS",
+          email: cleanEmail,
+        });
+      }
+    }
+
     const domain = cleanEmail.split("@")[1] || "";
 
     // Check if this domain belongs to a recognized college
@@ -840,41 +870,92 @@ r.post("/auth/verify-otp", async (req, res) => {
       });
     }
 
-    // Auto-create and log in student if this is their first time signing in with this email
-    const domain = cleanEmail.split("@")[1] || "";
-    const college = await College.findOne({ emailDomain: domain.toLowerCase() });
-    const rawName = cleanEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    const avatar = (rawName || "TB").slice(0, 2).toUpperCase();
-    const referralCode = "TB-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    const newUser = await User.create({
-      name: rawName || "Student",
-      email: cleanEmail,
-      password: "otp_authenticated",
-      role: "student", // default to student role so all student features are immediately unlocked
-      college: college ? college.name : "Registered Institution",
-      collegeId: college ? college._id : null,
-      credits: 10,
-      avatar,
-      verificationStatus: "verified",
-      welcomeShown: false,
-      referralCode,
-      lastActiveAt: new Date(),
-    });
-
-    const token = generateToken(newUser);
-    await ensureInitialCreditsRecorded(newUser);
-    return res.json({
-      success: true,
-      isRegistered: true,
-      isNewUser: true,
-      token,
-      user: newUser,
-      message: `Welcome to TimeBank! Your ${newUser.role === "student" ? "Student" : "User"} account was verified with 10 starter credits! 🚀`,
+    // If user not found and this was a login attempt, do NOT auto-create a user without face scan!
+    return res.status(404).json({
+      error: `No TimeBank account found for ${cleanEmail}. Please switch to Sign Up to create your account.`,
+      code: "USER_NOT_FOUND",
+      notRegistered: true,
     });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message || "Failed to verify code." });
+  }
+});
+
+// ─── REAL-TIME BIOMETRIC DUPLICATE FACE CHECK ─────────────────────────────────
+r.post("/auth/check-face", async (req, res) => {
+  try {
+    const { faceDescriptor, email } = req.body;
+    if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+      return res.status(400).json({ error: "Invalid face descriptor. Expected 128-dimensional embedding array." });
+    }
+
+    const cleanEmail = email ? String(email).toLowerCase().trim() : "";
+
+    // Query all existing users who have a registered faceDescriptor, excluding current email
+    const filter = {
+      faceDescriptor: { $exists: true, $ne: [] },
+    };
+    if (cleanEmail) {
+      filter.email = { $ne: cleanEmail };
+    }
+
+    const candidates = await User.find(filter);
+
+    let bestMatch = null;
+    let bestDistance = Infinity;
+
+    for (const candidate of candidates) {
+      if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
+      const dist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestMatch = candidate;
+      }
+    }
+
+    // High confidence match threshold
+    if (bestMatch && bestDistance < 0.45) {
+      // Flag existing user for multi-accounting attempt
+      bestMatch.flagged = true;
+      bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 85);
+      if (!bestMatch.flaggedReasons) bestMatch.flaggedReasons = [];
+      if (!bestMatch.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
+        bestMatch.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
+      }
+      await bestMatch.save();
+
+      // Create a pending FraudReview entry for admin visibility
+      try {
+        await FraudReview.create({
+          type: "user",
+          targetId: bestMatch._id,
+          userId: bestMatch._id,
+          riskScore: 95,
+          reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+          status: "pending",
+          note: `Real-time biometric scan during signup matched existing account ${bestMatch.email} (distance: ${bestDistance.toFixed(3)}). New attempt email: ${cleanEmail || "unspecified"}.`,
+        });
+      } catch (err) {
+        console.error("FraudReview log error:", err.message);
+      }
+
+      return res.json({
+        duplicate: true,
+        matchedEmail: bestMatch.email,
+        matchedName: bestMatch.name,
+        distance: bestDistance,
+        message: `Biometric face scan matches an existing registered account (${bestMatch.email}).`,
+      });
+    }
+
+    return res.json({
+      duplicate: false,
+      message: "Biometric face scan verified. No duplicate registered face found.",
+    });
+  } catch (e) {
+    console.error("Error in /auth/check-face:", e);
+    res.status(500).json({ error: e.message || "Failed to check biometric face." });
   }
 });
 
@@ -896,30 +977,29 @@ r.get("/auth/magic-login/:token", async (req, res) => {
 
     let user = await User.findOne({ email: otpDoc.email });
     if (!user) {
-      const domain = otpDoc.email.split("@")[1] || "";
-      const college = await College.findOne({ emailDomain: domain.toLowerCase() });
-      const rawName = otpDoc.email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-      const avatar = (rawName || "TB").slice(0, 2).toUpperCase();
-      const referralCode = "TB-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-      user = await User.create({
-        name: rawName || "Student",
-        email: otpDoc.email,
-        password: "otp_authenticated",
-        role: college ? "student" : (domain.includes(".edu") || domain.includes(".ac.") ? "student" : "general_user"),
-        college: college ? college.name : (domain.includes(".edu") ? domain : ""),
-        collegeId: college ? college._id : null,
-        credits: 10,
-        avatar,
-        verificationStatus: "verified",
-        welcomeShown: false,
-        referralCode,
-        lastActiveAt: new Date(),
+      return res.status(404).json({
+        error: "No registered TimeBank account found with this email. Please complete registration first.",
+        code: "USER_NOT_FOUND",
       });
-    } else {
-      user.lastActiveAt = new Date();
-      await user.save();
     }
+
+    if (user.role === "student" && user.approvalStatus === "pending") {
+      return res.json({
+        success: true,
+        waitingApproval: true,
+        userId: user._id,
+        message: "Your student account is pending approval by your college administrator. Please check back soon.",
+      });
+    }
+
+    if (user.role === "student" && user.approvalStatus === "rejected") {
+      return res.status(403).json({
+        error: `Your account application was rejected. ${user.approvalNote ? "Reason: " + user.approvalNote : "Please contact your college administration."}`,
+      });
+    }
+
+    user.lastActiveAt = new Date();
+    await user.save();
 
     await ensureInitialCreditsRecorded(user);
 
@@ -941,9 +1021,10 @@ r.post("/auth/register/student", async (req, res) => {
   try {
     const {
       name, email, password, bio, wallet, referralCode: refCode,
-      collegeId, college: collegeName, collegeIdNumber,
+      collegeId, college: colBody, collegeName: colNameBody, collegeIdNumber,
       faceDescriptor, faceEmbedding, deviceFingerprint, phone, otp,
     } = req.body;
+    const collegeName = (colBody || colNameBody || "").trim();
 
     if (!name || !email) {
       return res.status(400).json({ error: "Full legal name and college email are required." });
@@ -951,69 +1032,118 @@ r.post("/auth/register/student", async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Verify OTP if provided
-    if (otp) {
-      const validOtp = await Otp.findOne({
-        email: cleanEmail,
-        code: otp.trim(),
-        createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
-      }).sort({ createdAt: -1 });
-      if (!validOtp) {
-        return res.status(400).json({ error: "Invalid or expired email verification code." });
-      }
-      validOtp.used = true;
-      await validOtp.save();
+    // Strictly enforce OTP verification
+    if (!otp) {
+      return res.status(400).json({
+        error: "Email verification code is required. Please verify your college email first.",
+        code: "OTP_REQUIRED",
+      });
+    }
+
+    const validOtp = await Otp.findOne({
+      email: cleanEmail,
+      code: String(otp).trim(),
+      createdAt: { $gt: new Date(Date.now() - 30 * 60 * 1000) },
+    }).sort({ createdAt: -1 });
+    if (!validOtp) {
+      return res.status(400).json({
+        error: "Invalid or expired email verification code. Please request a new code.",
+        code: "INVALID_OTP",
+      });
+    }
+    validOtp.used = true;
+    await validOtp.save();
+
+    // Strictly enforce live biometric face scan
+    const activeFace = faceDescriptor || faceEmbedding;
+    if (!activeFace || !Array.isArray(activeFace) || activeFace.length !== 128) {
+      return res.status(400).json({
+        error: "Live biometric face scan (128-dimensional embedding) is mandatory for student verification.",
+        code: "FACE_REQUIRED",
+      });
     }
 
     // Resolve college if provided (without restricting student's email domain)
     let resolvedCollege = null;
     if (collegeId) {
-      resolvedCollege = await College.findById(collegeId);
+      try {
+        resolvedCollege = await College.findById(collegeId);
+      } catch {}
     }
     if (!resolvedCollege && collegeName) {
       resolvedCollege = await College.findOne({
-        $or: [{ name: new RegExp(`^${collegeName}$`, "i") }, { code: new RegExp(`^${collegeName}$`, "i") }],
+        $or: [
+          { name: new RegExp(`^${escapeRegex(collegeName)}$`, "i") },
+          { code: new RegExp(`^${escapeRegex(collegeName)}$`, "i") },
+          { name: new RegExp(escapeRegex(collegeName), "i") }
+        ],
       });
     }
 
     const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
-    const activeFace = faceDescriptor || faceEmbedding;
 
     const fraudCheck = await checkDuplicateRegistration({
       email: cleanEmail, phone, collegeIdNumber, faceDescriptor: activeFace, deviceFingerprint, ip,
     });
 
     if (fraudCheck.blocked) {
-      let specificMessage = "We could not create this account — it looks like it may already exist.";
-      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
-        const existingUser = await User.findOne({ email: cleanEmail });
-        if (existingUser && otp) {
-          if (activeFace && (!existingUser.faceDescriptor || existingUser.faceDescriptor.length === 0)) {
-            existingUser.faceDescriptor = activeFace;
-          }
-          if (resolvedCollege && !existingUser.college) {
-            existingUser.college = resolvedCollege.name;
-            existingUser.collegeId = resolvedCollege._id;
-          }
-          existingUser.lastActiveAt = new Date();
-          await existingUser.save();
-          const token = generateToken(existingUser);
-          return res.json({
-            success: true,
-            token,
-            user: existingUser,
-            message: "Welcome back! Signed into your existing account 🎉",
-          });
+      if (fraudCheck.reasons.includes("FACE_MATCH")) {
+        let matchedCandidate = null;
+        if (fraudCheck.matchedUserId) {
+          matchedCandidate = await User.findById(fraudCheck.matchedUserId);
         }
-        specificMessage = "An account with this email address already exists. Please switch to Sign In to log in.";
-      } else if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
+        if (!matchedCandidate && fraudCheck.matchedEmail) {
+          matchedCandidate = await User.findOne({ email: fraudCheck.matchedEmail });
+        }
+
+        if (matchedCandidate) {
+          matchedCandidate.flagged = true;
+          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 85);
+          if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
+          if (!matchedCandidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
+            matchedCandidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
+          }
+          await matchedCandidate.save();
+
+          try {
+            await FraudReview.create({
+              type: "user",
+              targetId: matchedCandidate._id,
+              userId: matchedCandidate._id,
+              riskScore: 95,
+              reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+              status: "pending",
+              note: `Student signup attempt under ${cleanEmail} matched existing user ${matchedCandidate.email} (distance: ${fraudCheck.matchDistance?.toFixed(3)}).`,
+            });
+          } catch (err) {
+            console.error("FraudReview error:", err.message);
+          }
+        }
+
+        return res.status(409).json({
+          error: `This face scan matches an existing registered account (${fraudCheck.matchedEmail || matchedCandidate?.email}). Multi-accounting is not allowed.`,
+          code: "DUPLICATE_FACE",
+          duplicateFace: true,
+          matchedEmail: fraudCheck.matchedEmail || matchedCandidate?.email || null,
+          matchedName: matchedCandidate?.name || "",
+          reasons: fraudCheck.reasons,
+        });
+      }
+
+      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
+        return res.status(409).json({
+          error: "An account with this email address already exists. Please switch to Sign In to log in.",
+          code: "EMAIL_EXISTS",
+          matchedEmail: cleanEmail,
+          reasons: fraudCheck.reasons,
+        });
+      }
+
+      let specificMessage = "We could not create this account — duplicate credentials detected.";
+      if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
         specificMessage = "This phone number is already registered under another account.";
       } else if (fraudCheck.reasons.includes("ID_NUMBER_EXISTS")) {
         specificMessage = "This College ID / USN is already registered.";
-      } else if (fraudCheck.reasons.includes("FACE_MATCH")) {
-        specificMessage = fraudCheck.matchedEmail
-          ? `This face matches an existing account (${fraudCheck.matchedEmail}).`
-          : "This face scan matches another registered user account.";
       }
 
       return res.status(409).json({
@@ -1095,18 +1225,73 @@ r.post("/auth/register/student", async (req, res) => {
     await ensureInitialCreditsRecorded(user);
 
     // Notify all college admins for this college about the pending student
+    const collegeConditions = [];
     if (resolvedCollege) {
-      const collegeAdmins = await User.find({
-        role: "collegeAdmin",
-        college: resolvedCollege.name,
-      });
-      for (const admin of collegeAdmins) {
-        await pushNotification(admin._id, {
+      if (resolvedCollege._id) {
+        collegeConditions.push({ collegeId: resolvedCollege._id });
+      }
+      if (resolvedCollege.name) {
+        collegeConditions.push({ college: new RegExp(`^${escapeRegex(resolvedCollege.name.trim())}$`, "i") });
+        collegeConditions.push({ college: new RegExp(escapeRegex(resolvedCollege.name.trim()), "i") });
+      }
+      if (resolvedCollege.code) {
+        collegeConditions.push({ college: new RegExp(`^${escapeRegex(resolvedCollege.code.trim())}$`, "i") });
+      }
+    }
+    if (user.college && user.college.trim()) {
+      collegeConditions.push({ college: new RegExp(escapeRegex(user.college.trim()), "i") });
+    }
+
+    const adminFilter = {
+      role: { $in: ["collegeAdmin", "institute_admin"] },
+      ...(collegeConditions.length > 0 ? { $or: collegeConditions } : {})
+    };
+
+    let collegeAdmins = await User.find(adminFilter);
+
+    // If no specific college admin matched, alert platform admins so student is not orphaned
+    if (!collegeAdmins || collegeAdmins.length === 0) {
+      collegeAdmins = await User.find({ role: { $in: ["websiteAdmin", "super_admin"] } });
+    }
+
+    for (const admin of collegeAdmins) {
+      // 1. In-app notification
+      try {
+        await Notification.create({
+          user: admin._id,
           type: "pending_student",
-          title: `New Student Awaiting Approval 🎓`,
-          body: `${name} (${cleanEmail}) has registered and submitted their ID card for verification.`,
-          data: { studentId: user._id, studentName: name, studentEmail: cleanEmail },
+          title: "New Student ID Verification Awaiting Approval 🎓",
+          body: `${name} (${cleanEmail}) from ${user.college || "your institution"} has submitted their ID card for verification.`,
+          data: { studentId: user._id, studentName: name, studentEmail: cleanEmail, collegeIdNumber: user.collegeIdNumber || "" },
+          read: false,
         });
+      } catch (notifErr) {
+        console.error("Failed to create admin notification:", notifErr);
+      }
+
+      // 2. Web push / Socket notification
+      await pushNotification(admin._id, {
+        type: "pending_student",
+        title: `New Student Awaiting Approval 🎓`,
+        body: `${name} (${cleanEmail}) has registered and submitted their ID card for verification.`,
+        data: { studentId: user._id, studentName: name, studentEmail: cleanEmail, collegeIdNumber: user.collegeIdNumber || "" },
+      });
+
+      // 3. Real-time Email Alert to college admin
+      if (admin.email) {
+        try {
+          await sendCollegeAdminPendingStudentEmail({
+            to: admin.email,
+            adminName: admin.name || "College Administrator",
+            studentName: name,
+            studentEmail: cleanEmail,
+            collegeName: user.college || resolvedCollege?.name || "Your Institution",
+            collegeIdNumber: user.collegeIdNumber || "",
+          });
+          console.log(`[Admin Alert Email] Dispatched pending student email to admin ${admin.email}`);
+        } catch (emailErr) {
+          console.error(`[Admin Alert Email Error] Could not send email to ${admin.email}:`, emailErr);
+        }
       }
     }
 
@@ -1146,11 +1331,41 @@ r.get("/college-admin/pending-students", requireAuth, requireRole("collegeAdmin"
     const admin = await User.findById(req.user.id);
     if (!admin) return res.status(404).json({ error: "Admin not found" });
     const filter = { role: "student", approvalStatus: "pending" };
-    if (admin.college && admin.role !== "websiteAdmin" && admin.role !== "super_admin") {
-      filter.college = admin.college;
+
+    if (admin.role !== "websiteAdmin" && admin.role !== "super_admin") {
+      const matchCriteria = [];
+      if (admin.collegeId) {
+        matchCriteria.push({ collegeId: admin.collegeId });
+      }
+      if (admin.college && admin.college.trim()) {
+        const trimmed = admin.college.trim();
+        matchCriteria.push({ college: new RegExp(`^${escapeRegex(trimmed)}$`, "i") });
+        matchCriteria.push({ college: new RegExp(escapeRegex(trimmed), "i") });
+
+        const matchedCol = await College.findOne({
+          $or: [
+            { code: new RegExp(`^${escapeRegex(trimmed)}$`, "i") },
+            { name: new RegExp(escapeRegex(trimmed), "i") }
+          ]
+        });
+        if (matchedCol) {
+          matchCriteria.push({ collegeId: matchedCol._id });
+          if (matchedCol.name) {
+            matchCriteria.push({ college: new RegExp(`^${escapeRegex(matchedCol.name.trim())}$`, "i") });
+            matchCriteria.push({ college: new RegExp(escapeRegex(matchedCol.name.trim()), "i") });
+          }
+          if (matchedCol.code) {
+            matchCriteria.push({ college: new RegExp(`^${escapeRegex(matchedCol.code.trim())}$`, "i") });
+          }
+        }
+      }
+      if (matchCriteria.length > 0) {
+        filter.$or = matchCriteria;
+      }
     }
+
     const students = await User.find(filter)
-      .select("name email college idCardImage idCardUploadedAt createdAt")
+      .select("name email college collegeIdNumber idCardImage idCardUploadedAt createdAt")
       .sort({ createdAt: -1 });
     res.json(students);
   } catch (e) {
@@ -1163,11 +1378,41 @@ r.get("/college-admin/all-students", requireAuth, requireRole("collegeAdmin", "i
     const admin = await User.findById(req.user.id);
     if (!admin) return res.status(404).json({ error: "Admin not found" });
     const filter = { role: "student" };
-    if (admin.college && admin.role !== "websiteAdmin" && admin.role !== "super_admin") {
-      filter.college = admin.college;
+
+    if (admin.role !== "websiteAdmin" && admin.role !== "super_admin") {
+      const matchCriteria = [];
+      if (admin.collegeId) {
+        matchCriteria.push({ collegeId: admin.collegeId });
+      }
+      if (admin.college && admin.college.trim()) {
+        const trimmed = admin.college.trim();
+        matchCriteria.push({ college: new RegExp(`^${escapeRegex(trimmed)}$`, "i") });
+        matchCriteria.push({ college: new RegExp(escapeRegex(trimmed), "i") });
+
+        const matchedCol = await College.findOne({
+          $or: [
+            { code: new RegExp(`^${escapeRegex(trimmed)}$`, "i") },
+            { name: new RegExp(escapeRegex(trimmed), "i") }
+          ]
+        });
+        if (matchedCol) {
+          matchCriteria.push({ collegeId: matchedCol._id });
+          if (matchedCol.name) {
+            matchCriteria.push({ college: new RegExp(`^${escapeRegex(matchedCol.name.trim())}$`, "i") });
+            matchCriteria.push({ college: new RegExp(escapeRegex(matchedCol.name.trim()), "i") });
+          }
+          if (matchedCol.code) {
+            matchCriteria.push({ college: new RegExp(`^${escapeRegex(matchedCol.code.trim())}$`, "i") });
+          }
+        }
+      }
+      if (matchCriteria.length > 0) {
+        filter.$or = matchCriteria;
+      }
     }
+
     const students = await User.find(filter)
-      .select("name email college approvalStatus idCardImage createdAt approvedAt approvalNote")
+      .select("name email college collegeIdNumber approvalStatus idCardImage createdAt approvedAt approvalNote")
       .sort({ createdAt: -1 });
     res.json(students);
   } catch (e) {
@@ -1188,6 +1433,11 @@ r.post("/college-admin/approve-student/:userId", requireAuth, requireRole("colle
     student.approvalNote = note || "";
     student.approvedBy = req.user.id;
     student.approvedAt = new Date();
+    if (decision === "approved") {
+      student.verificationStatus = "verified";
+    } else {
+      student.verificationStatus = "rejected";
+    }
     await student.save();
 
     const notifTitle = decision === "approved"
@@ -1197,6 +1447,21 @@ r.post("/college-admin/approve-student/:userId", requireAuth, requireRole("colle
       ? "Your student account has been approved by your college administrator. You can now sign in!"
       : `Your account application was not approved. ${note ? "Reason: " + note : "Please contact your college administration."}`;
 
+    // Create persistent DB notification
+    try {
+      await Notification.create({
+        user: student._id,
+        type: decision === "approved" ? "account_approved" : "account_rejected",
+        title: notifTitle,
+        body: notifBody,
+        data: { approvalStatus: decision, note: note || "" },
+        read: false,
+      });
+    } catch (notifErr) {
+      console.error("Failed to create student notification:", notifErr);
+    }
+
+    // Push socket/web-push notification
     await pushNotification(student._id, {
       type: decision === "approved" ? "account_approved" : "account_rejected",
       title: notifTitle,
@@ -1204,9 +1469,25 @@ r.post("/college-admin/approve-student/:userId", requireAuth, requireRole("colle
       data: { approvalStatus: decision, note: note || "" },
     });
 
+    // Send real-time decision email to the student
+    if (student.email) {
+      try {
+        await sendStudentApprovalDecisionEmail({
+          to: student.email,
+          studentName: student.name,
+          collegeName: student.college || "Your Institution",
+          decision,
+          note: note || "",
+        });
+        console.log(`[Approval Email] Real-time decision email (${decision}) sent to ${student.email}`);
+      } catch (mailErr) {
+        console.error(`[Approval Email Error] Failed to send decision email to ${student.email}:`, mailErr);
+      }
+    }
+
     res.json({
       success: true,
-      message: `Student ${decision} successfully.`,
+      message: `Student ${decision} successfully. Real-time notification and email dispatched to ${student.email}.`,
       student: { _id: student._id, name: student.name, email: student.email, approvalStatus: student.approvalStatus },
     });
   } catch (e) {
@@ -1230,52 +1511,99 @@ r.post("/auth/register/general", async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Verify OTP if provided
-    if (otp) {
-      const validOtp = await Otp.findOne({
-        email: cleanEmail,
-        code: otp.trim(),
-        createdAt: { $gt: new Date(Date.now() - 15 * 60 * 1000) },
-      }).sort({ createdAt: -1 });
-      if (!validOtp) {
-        return res.status(400).json({ error: "Invalid or expired email verification code." });
-      }
-      validOtp.used = true;
-      await validOtp.save();
+    // Strictly enforce OTP verification
+    if (!otp) {
+      return res.status(400).json({
+        error: "Email verification code is required. Please verify your email first.",
+        code: "OTP_REQUIRED",
+      });
+    }
+
+    const validOtp = await Otp.findOne({
+      email: cleanEmail,
+      code: String(otp).trim(),
+      createdAt: { $gt: new Date(Date.now() - 30 * 60 * 1000) },
+    }).sort({ createdAt: -1 });
+    if (!validOtp) {
+      return res.status(400).json({
+        error: "Invalid or expired email verification code. Please request a new code.",
+        code: "INVALID_OTP",
+      });
+    }
+    validOtp.used = true;
+    await validOtp.save();
+
+    // Strictly enforce live biometric face scan
+    const activeFace = faceDescriptor || faceEmbedding;
+    if (!activeFace || !Array.isArray(activeFace) || activeFace.length !== 128) {
+      return res.status(400).json({
+        error: "Live biometric face scan (128-dimensional embedding) is mandatory to create an account.",
+        code: "FACE_REQUIRED",
+      });
     }
 
     const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
-    const activeFace = faceDescriptor || faceEmbedding;
 
     const fraudCheck = await checkDuplicateRegistration({
       email: cleanEmail, phone, faceDescriptor: activeFace, deviceFingerprint, ip,
     });
 
     if (fraudCheck.blocked) {
-      let specificMessage = "We could not create this account — it looks like it may already exist.";
-      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
-        const existingUser = await User.findOne({ email: cleanEmail });
-        if (existingUser && otp) {
-          if (activeFace && (!existingUser.faceDescriptor || existingUser.faceDescriptor.length === 0)) {
-            existingUser.faceDescriptor = activeFace;
-          }
-          existingUser.lastActiveAt = new Date();
-          await existingUser.save();
-          const token = generateToken(existingUser);
-          return res.json({
-            success: true,
-            token,
-            user: existingUser,
-            message: "Welcome back! Signed into your existing account 🎉",
-          });
+      if (fraudCheck.reasons.includes("FACE_MATCH")) {
+        let matchedCandidate = null;
+        if (fraudCheck.matchedUserId) {
+          matchedCandidate = await User.findById(fraudCheck.matchedUserId);
         }
-        specificMessage = "An account with this email address already exists. Please switch to Sign In to log in.";
-      } else if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
+        if (!matchedCandidate && fraudCheck.matchedEmail) {
+          matchedCandidate = await User.findOne({ email: fraudCheck.matchedEmail });
+        }
+
+        if (matchedCandidate) {
+          matchedCandidate.flagged = true;
+          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 85);
+          if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
+          if (!matchedCandidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
+            matchedCandidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
+          }
+          await matchedCandidate.save();
+
+          try {
+            await FraudReview.create({
+              type: "user",
+              targetId: matchedCandidate._id,
+              userId: matchedCandidate._id,
+              riskScore: 95,
+              reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+              status: "pending",
+              note: `General user signup attempt under ${cleanEmail} matched existing user ${matchedCandidate.email} (distance: ${fraudCheck.matchDistance?.toFixed(3)}).`,
+            });
+          } catch (err) {
+            console.error("FraudReview error:", err.message);
+          }
+        }
+
+        return res.status(409).json({
+          error: `This face scan matches an existing registered account (${fraudCheck.matchedEmail || matchedCandidate?.email}). Multi-accounting is prohibited on TimeBank.`,
+          code: "DUPLICATE_FACE",
+          duplicateFace: true,
+          matchedEmail: fraudCheck.matchedEmail || matchedCandidate?.email || null,
+          matchedName: matchedCandidate?.name || "",
+          reasons: fraudCheck.reasons,
+        });
+      }
+
+      if (fraudCheck.reasons.includes("EMAIL_EXISTS")) {
+        return res.status(409).json({
+          error: "An account with this email address already exists. Please switch to Sign In to log in.",
+          code: "EMAIL_EXISTS",
+          matchedEmail: cleanEmail,
+          reasons: fraudCheck.reasons,
+        });
+      }
+
+      let specificMessage = "We could not create this account — duplicate credentials detected.";
+      if (fraudCheck.reasons.includes("PHONE_EXISTS")) {
         specificMessage = "This phone number is already registered under another account.";
-      } else if (fraudCheck.reasons.includes("FACE_MATCH")) {
-        specificMessage = fraudCheck.matchedEmail
-          ? `This face matches an existing account (${fraudCheck.matchedEmail}).`
-          : "This face scan matches another registered user account.";
       }
 
       return res.status(409).json({
@@ -1824,6 +2152,142 @@ r.post("/blockchain/relay-transfer", requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ─── SMART CONTRACT DEPLOYMENT & INFO ────────────────────────────────────────
+r.get("/blockchain/contract-info", async (_req, res) => {
+  try {
+    const contractAddress = relayer.getContractAddress();
+    if (!contractAddress) {
+      return res.json({
+        deployed: false,
+        contractAddress: null,
+        tokenName: "TimeBank Credit",
+        tokenSymbol: "TBC",
+        decimals: 18,
+      });
+    }
+
+    const provider = await relayer.getProvider();
+    const contract = await relayer.getTimeCreditContract(provider);
+    let totalSupply = "0";
+    if (contract) {
+      try {
+        const rawSupply = await contract.totalSupply();
+        totalSupply = ethers.formatUnits(rawSupply, 18);
+      } catch (err) {
+        console.warn("Error fetching total supply:", err.message);
+      }
+    }
+
+    res.json({
+      deployed: true,
+      contractAddress,
+      tokenName: "TimeBank Credit",
+      tokenSymbol: "TBC",
+      decimals: 18,
+      totalSupply,
+      explorerUrl: `${relayer.EXPLORER_BASE}token/${contractAddress}`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/blockchain/deploy-contract", requireAuth, async (req, res) => {
+  try {
+    const { privateKey, contractAddress } = req.body;
+    
+    // If an existing contract address was passed, just update it
+    if (contractAddress && ethers.isAddress(contractAddress)) {
+      relayer.setContractAddress(contractAddress);
+      return res.json({
+        success: true,
+        contractAddress,
+        explorerUrl: `${relayer.EXPLORER_BASE}token/${contractAddress}`,
+      });
+    }
+
+    const { deployTimeCreditContract } = await import("./deployContract.js");
+    const result = await deployTimeCreditContract(privateKey || null);
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── WEB PUSH NOTIFICATIONS ──────────────────────────────────────────────────
+r.get("/notifications/vapid-public-key", async (_req, res) => {
+  try {
+    const { getVapidPublicKey } = await import("./pushService.js");
+    res.json({ publicKey: getVapidPublicKey() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/notifications/subscribe", requireAuth, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ error: "Invalid subscription object." });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.pushSubscriptions) {
+      user.pushSubscriptions = [];
+    }
+
+    const exists = user.pushSubscriptions.some((s) => s.endpoint === subscription.endpoint);
+    if (!exists) {
+      user.pushSubscriptions.push({
+        endpoint: subscription.endpoint,
+        keys: subscription.keys,
+        userAgent: req.headers["user-agent"] || "",
+        createdAt: new Date(),
+      });
+      await user.save();
+    }
+
+    res.json({ success: true, count: user.pushSubscriptions.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/notifications/unsubscribe", requireAuth, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.pushSubscriptions = (user.pushSubscriptions || []).filter((s) => s.endpoint !== endpoint);
+    await user.save();
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.post("/notifications/test-push", requireAuth, async (req, res) => {
+  try {
+    const { sendPushToUser } = await import("./pushService.js");
+    const sentCount = await sendPushToUser(req.user.id, {
+      title: "TimeBank Push Alert 🚀",
+      body: "Web Push notifications are now active on your device! You'll receive real-time offline alerts.",
+      url: "/wallet",
+    });
+    res.json({ success: true, sentCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ─── USERS ───────────────────────────────────────────────────────────────────
 r.get("/users", async (_req, res) => {

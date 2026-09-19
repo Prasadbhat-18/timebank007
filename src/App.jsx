@@ -13,6 +13,7 @@ import NotificationBell from "./NotificationBell.jsx";
 import AICTEProgress from "./AICTEProgress.jsx";
 import VerifyCertificate from "./VerifyCertificate.jsx";
 import RegistrationWizard from "./components/RegistrationWizard.jsx";
+import PWAInstallBanner from "./components/PWAInstallBanner.jsx";
 
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
@@ -433,6 +434,7 @@ export default function App() {
   const [verifyCertId, setVerifyCertId] = useState(null);
   const [pendingUserId, setPendingUserId] = useState(null); // student awaiting college admin approval
   const [dupeFaceModal, setDupeFaceModal] = useState(null); // { matchedEmail }
+  const [authInitialEmail, setAuthInitialEmail] = useState("");
 
   // Shared data cache
   const [skills, setSkills] = useState([]);
@@ -460,6 +462,10 @@ export default function App() {
       .catch((err) => {
         console.warn("Session restore expired or failed:", err.message);
         localStorage.removeItem("token");
+        if (err.waitingApproval && err.userId) {
+          setPendingUserId(err.userId);
+          setPage("pending_approval");
+        }
       });
   }, []);
 
@@ -733,6 +739,13 @@ export default function App() {
         res = await api.registerGeneral(payload);
       }
 
+      if (res?.waitingApproval) {
+        setPendingUserId(res.userId);
+        nav("pending_approval");
+        notify(res.message || "Registration submitted! Awaiting college administrator approval 🎓", "info");
+        return res;
+      }
+
       const { token, user: u, message } = res;
       localStorage.setItem("token", token);
       
@@ -837,6 +850,8 @@ export default function App() {
               notify={notify}
               setUser={setUser}
               nav={nav}
+              initialEmail={authInitialEmail}
+              onClearInitialEmail={() => setAuthInitialEmail("")}
             />
           )}
           {page === "pending_approval" && (
@@ -893,7 +908,13 @@ export default function App() {
                 <button
                   className="btn btn-p"
                   style={{ flex: 2, justifyContent: "center" }}
-                  onClick={() => { setDupeFaceModal(null); nav("auth"); notify(`Please sign in with ${dupeFaceModal.matchedEmail}`, "info"); }}
+                  onClick={() => {
+                    const matched = dupeFaceModal.matchedEmail;
+                    setDupeFaceModal(null);
+                    setAuthInitialEmail(matched);
+                    nav("auth");
+                    notify(`Redirecting to sign in with ${matched}`, "info");
+                  }}
                 >
                   Sign In with That Account →
                 </button>
@@ -904,6 +925,7 @@ export default function App() {
       </AnimatePresence>
 
       {user && <AiChatWidget user={user} />}
+      <PWAInstallBanner />
     </div>
   );
 }
@@ -1823,7 +1845,7 @@ function Landing({ nav }) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify, setUser, nav }) {
+function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify, setUser, nav, initialEmail, onClearInitialEmail }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
   const [regRole, setRegRole] = useState(null); // null | 'student' | 'general_user'
   
@@ -1847,6 +1869,19 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [faceDescriptor, setFaceDescriptor] = useState(null);
+
+  // Pre-fill email when redirected from duplicate face detection
+  useEffect(() => {
+    if (initialEmail) {
+      setLe(initialEmail);
+      setTab("login");
+      setRegRole(null);
+      setSignInMethod("otp");
+      setError(`Existing profile detected (${initialEmail}). Please sign in with OTP or password.`);
+      setLoginOtpSent(false);
+      if (onClearInitialEmail) onClearInitialEmail();
+    }
+  }, [initialEmail, onClearInitialEmail]);
 
   // Listen to autofill trigger from Real-time College Email Inbox modal
   useEffect(() => {
@@ -1919,7 +1954,11 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
         await doLoginWithOtp(le, loginOtp, faceDescriptor);
       }
     } catch (e) {
-      setError(e.message || "Verification failed. Please check the code.");
+      if (e.code === "USER_NOT_FOUND" || e.notRegistered || e.message?.includes("No TimeBank account found")) {
+        setError("No TimeBank account exists with this email. Please click Sign Up to create your account.");
+      } else {
+        setError(e.message || "Verification failed. Please check the code.");
+      }
     } finally {
       setLoading(false);
     }
@@ -2393,6 +2432,14 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
             <RegistrationWizard
               role={regRole === "student" ? "student" : "general"}
               onCancel={() => { setRegRole(null); setError(""); }}
+              onRedirectToLogin={(email) => {
+                setRegRole(null);
+                setTab("login");
+                setLe(email || "");
+                setSignInMethod("otp");
+                setError(`Existing account detected (${email}). Please sign in with your email code or password.`);
+                setLoginOtpSent(false);
+              }}
               onComplete={(token, newUser) => {
                 if (token && newUser) {
                   localStorage.setItem("token", token);
@@ -2983,6 +3030,9 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
   const [refreshingBal, setRefreshingBal] = useState(false);
   const [gasCountdown, setGasCountdown] = useState(0);
   const [ledgerView, setLedgerView] = useState("my");
+  const [contractInfo, setContractInfo] = useState(null);
+  const [tokenBalance, setTokenBalance] = useState("0");
+  const [deployingContract, setDeployingContract] = useState(false);
   
   const initialPol = parseFloat(wallet?.balance || 0).toFixed(4);
   const [livePolBalance, setLivePolBalance] = useState(initialPol);
@@ -2998,7 +3048,14 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
       api.fetchBlockchainRecords().then(setBcRecords).catch(() => {});
     }
     api.fetchFaucetStatus().then(setRelayerStatus).catch(() => {});
-  }, [user?._id, user?.wallet, wallet?.address, ledgerView]);
+    api.fetchContractInfo().then((c) => {
+      setContractInfo(c);
+      if (c?.contractAddress && targetWallet) {
+        const prov = wallet?.provider || new ethers.JsonRpcProvider("https://polygon-amoy-bor-rpc.publicnode.com", 80002);
+        chain.getTokenBalance(prov, targetWallet, c.contractAddress).then(setTokenBalance).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [user?._id, user?.wallet, wallet?.address, wallet?.provider, ledgerView]);
 
   // Sync on-chain balance directly from Polygon Amoy RPC & detect external deposits
   const syncOnChainBalance = useCallback(async () => {
@@ -3153,6 +3210,29 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
     }
   };
 
+  const handleWatchToken = async () => {
+    if (!contractInfo?.contractAddress) return;
+    try {
+      await chain.watchTokenInWallet(contractInfo.contractAddress, contractInfo.tokenSymbol || "TBC", 18);
+      notify("🦊 TimeBank Credit (TBC) token successfully added to MetaMask!");
+    } catch (e) {
+      notify(e.message || "Failed to add token to wallet", "warning");
+    }
+  };
+
+  const handleDeployContract = async () => {
+    setDeployingContract(true);
+    try {
+      const res = await api.deployContract();
+      notify(`🎉 TimeCredit contract deployed at ${chain.formatAddress(res.contractAddress)} on Polygon Amoy!`, "success");
+      loadData();
+    } catch (e) {
+      notify(`Deployment error: ${e.message}`, "error");
+    } finally {
+      setDeployingContract(false);
+    }
+  };
+
   return (
     <div className="inner">
       <div className="ph"><h1>Wallet & Blockchain</h1><p>Real-time on-chain credits, gas station, and immutable ledger</p></div>
@@ -3216,6 +3296,104 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
           <button className="btn" style={{ background: "rgba(255,255,255,0.15)", color: "#fff", marginTop: 4 }} onClick={connectWallet}>
             {chain.isMetaMaskInstalled() ? "Connect MetaMask" : "Connect Inbuilt Wallet"}
           </button>
+        )}
+      </motion.div>
+
+      {/* TimeBank Custom ERC-20 Smart Contract Card */}
+      <motion.div className="card mb2" style={{ border: "1px solid rgba(16, 185, 129, 0.35)", background: "rgba(16, 185, 129, 0.04)" }} {...fadeUp(0.12)}>
+        <div className="btwn" style={{ flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14.5, color: "#fff", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>🪙 TimeBank Smart Contract (ERC-20 Token: TBC)</span>
+              <span className={`tag ${contractInfo?.deployed ? "tg" : "ta"}`} style={{ fontSize: 11, padding: "2px 8px" }}>
+                {contractInfo?.deployed ? "● Deployed On-Chain" : "⚡ Ready to Deploy"}
+              </span>
+            </div>
+            <div className="text-s" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 4 }}>
+              Custom smart contract managing fungible TimeBank Credits (1 TBC = 1 Hour) on Polygon Amoy (Chain ID: 80002).
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {contractInfo?.deployed ? (
+              <>
+                <button
+                  className="btn btn-sm"
+                  onClick={handleWatchToken}
+                  style={{
+                    background: "rgba(245, 158, 11, 0.15)",
+                    border: "1px solid rgba(245, 158, 11, 0.4)",
+                    color: "var(--amber)",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                  }}
+                  title="Import TBC token to your MetaMask wallet"
+                >
+                  🦊 Add TBC to MetaMask
+                </button>
+                <a
+                  href={contractInfo.explorerUrl || chain.tokenLink(contractInfo.contractAddress)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-sm"
+                  style={{
+                    background: "rgba(16, 185, 129, 0.15)",
+                    border: "1px solid rgba(16, 185, 129, 0.35)",
+                    color: "var(--em)",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    padding: "6px 12px",
+                    textDecoration: "none",
+                  }}
+                >
+                  Polygonscan Token Tracker ↗
+                </a>
+              </>
+            ) : (
+              <button
+                className="btn btn-p btn-sm"
+                onClick={handleDeployContract}
+                disabled={deployingContract}
+                style={{ fontWeight: 700, fontSize: 12.5, padding: "6px 14px" }}
+              >
+                {deployingContract ? "Deploying to Amoy..." : "🚀 Deploy Contract to Polygon Amoy"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {contractInfo?.deployed && (
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255, 255, 255, 0.08)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, fontSize: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "var(--text-secondary)" }}>Contract Address:</span>
+              <span style={{ fontFamily: "monospace", color: "#34d399", fontWeight: 700 }}>
+                {chain.formatAddress(contractInfo.contractAddress)}
+              </span>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(contractInfo.contractAddress);
+                  notify("📋 Contract address copied to clipboard!");
+                }}
+                style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 4, color: "#ddd", padding: "2px 6px", fontSize: 10, cursor: "pointer" }}
+              >
+                Copy
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span>
+                <strong style={{ color: "var(--text-secondary)" }}>Your On-Chain TBC Balance:</strong>{" "}
+                <span style={{ color: "var(--em)", fontWeight: 700, fontSize: 13 }}>{tokenBalance} TBC</span>
+              </span>
+              {contractInfo.totalSupply && (
+                <span>
+                  <strong style={{ color: "var(--text-secondary)" }}>Total Supply:</strong>{" "}
+                  <span style={{ color: "#fff", fontWeight: 600 }}>{contractInfo.totalSupply} TBC</span>
+                </span>
+              )}
+            </div>
+          </div>
         )}
       </motion.div>
 
@@ -3984,6 +4162,12 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, color: "#fff", fontSize: 14, marginBottom: 2 }}>{s.name}</div>
                       <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}>{s.email}</div>
+                      {s.collegeIdNumber && (
+                        <div style={{ fontSize: 11.5, color: "#38bdf8", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ padding: "1px 6px", borderRadius: 4, background: "rgba(56,189,248,0.15)", fontSize: 10, fontWeight: 700, letterSpacing: "0.5px" }}>ID / USN</span>
+                          <span style={{ fontWeight: 600, color: "#e2e8f0" }}>{s.collegeIdNumber}</span>
+                        </div>
+                      )}
                       <div style={{ fontSize: 11.5, color: "#64748b" }}>
                         {s.college || "No college"} · Applied {s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "recently"}
                       </div>
