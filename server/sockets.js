@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { Notification } from "./models.js";
 import { sendPushToUser } from "./pushService.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET || "timebank-auth-token-fallback";
 const userSockets = new Map(); // userId -> Set of socketIds
 let ioInstance = null;
 

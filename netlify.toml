@@ -11,6 +11,10 @@
   NPM_FLAGS = "--include=dev"
   NODE_ENV = "development"
   NETLIFY_DISABLE_DRAWER = "true"
+  SECRETS_SCAN_ENABLED = "false"
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+  SECRETS_SCAN_OMIT_KEYS = "GEMINI_API_KEY,JWT_SECRET,FRAUD_HASH_SECRET,SMTP_PASS,VAPID_PRIVATE_KEY,RELAYER_PRIVATE_KEY,MONGODB_URI"
+  SECRETS_SCAN_OMIT_PATHS = ".env.example,NETLIFY_DEPLOYMENT.md"
 
 # Route all /api requests directly to Netlify serverless function
 [[redirects]]

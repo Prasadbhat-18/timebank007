@@ -21,7 +21,7 @@ import path from "path";
 
 const r = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || "timebank_super_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET || "timebank-auth-token-fallback";
 
 function generateToken(user) {
   return jwt.sign({ id: user._id, role: user.role, college: user.college, collegeId: user.collegeId }, JWT_SECRET, { expiresIn: "7d" });
@@ -4178,7 +4178,7 @@ r.post("/ai-chat", async (req, res) => {
       try {
         const token = req.headers.authorization.split(" ")[1];
         if (token) {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET || "timebank_secret_key");
+          const decoded = jwt.verify(token, JWT_SECRET);
           const dbUser = await User.findById(decoded.id);
           if (dbUser) currentUser = dbUser;
         }

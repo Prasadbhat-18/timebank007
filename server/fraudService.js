@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { User, Transaction, Booking } from "./models.js";
 
 const FACE_MATCH_THRESHOLD = 0.6; // Euclidean distance <= 0.6 = same person
-const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank_fraud_hash_secret_2026";
+const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank-fraud-hash-key";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function euclideanDistance(a, b) {

@@ -19,7 +19,7 @@ export async function deployTimeCreditContract(privateKey = null) {
   const keyToUse =
     privateKey ||
     process.env.RELAYER_PRIVATE_KEY ||
-    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    (ethers.Wallet.createRandom ? ethers.Wallet.createRandom().privateKey : "0x0000000000000000000000000000000000000000000000000000000000000001");
 
   const signer = new ethers.Wallet(keyToUse, provider);
   const balance = await provider.getBalance(signer.address);
