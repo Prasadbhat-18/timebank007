@@ -15,6 +15,32 @@ import VerifyCertificate from "./VerifyCertificate.jsx";
 import RegistrationWizard from "./components/RegistrationWizard.jsx";
 import PWAInstallBanner from "./components/PWAInstallBanner.jsx";
 
+// ─── SAFE WEBSOCKET HELPER ───────────────────────────────────────────────────
+export function getAppSocket(extraOpts = {}) {
+  const socketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.VITE_API_URL?.startsWith("http") ? import.meta.env.VITE_API_URL : null);
+  // Netlify Serverless does not support WebSocket connections to its own domain
+  if (!socketUrl && typeof window !== "undefined" && window.location.hostname.includes("netlify.app")) {
+    return null;
+  }
+  const targetUrl = socketUrl || (typeof window !== "undefined" ? window.location.origin : "");
+  if (!targetUrl) return null;
+
+  try {
+    const s = io(targetUrl, {
+      transports: ["websocket", "polling"],
+      reconnectionAttempts: 2,
+      timeout: 3000,
+      ...extraOpts,
+    });
+    s.on("connect_error", () => {
+      s.disconnect();
+    });
+    return s;
+  } catch {
+    return null;
+  }
+}
+
 // ─── STYLISH SVG ICONS ────────────────────────────────────────────────────────
 export function ClockIcon({ size = 16, color = "currentColor" }) {
   return (
@@ -1683,16 +1709,15 @@ function LandingBlockchainTicker() {
       }
     }).catch(() => {});
 
-    let socket = null;
-    try {
-      socket = io(window.location.origin, { transports: ["websocket", "polling"] });
+    const socket = getAppSocket();
+    if (socket) {
       socket.on("blockchain_ledger_entry", (entry) => {
         if (entry) {
           setRecords((prev) => [entry, ...prev.slice(0, 5)]);
           if (entry.block) setLiveBlock(entry.block);
         }
       });
-    } catch {}
+    }
 
     return () => { if (socket) socket.disconnect(); };
   }, []);
@@ -2579,13 +2604,8 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
   // Real-time transaction listener on Dashboard
   useEffect(() => {
     if (!user?._id) return;
-    let socket = null;
-    try {
-      socket = io(window.location.origin, {
-        auth: { token: localStorage.getItem("token") },
-        transports: ["websocket", "polling"],
-      });
-
+    const socket = getAppSocket({ auth: { token: localStorage.getItem("token") } });
+    if (socket) {
       socket.on("blockchain_ledger_entry", (entry) => {
         if (!entry) return;
         const isUserWallet = user.wallet && (entry.from?.toLowerCase() === user.wallet.toLowerCase() || entry.to?.toLowerCase() === user.wallet.toLowerCase());
@@ -2600,13 +2620,8 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
           api.fetchUserTransactions(user._id).then(setTxs).catch(() => {});
         }
       });
-    } catch (e) {
-      console.warn("Dashboard socket listener error:", e);
     }
-
-    return () => {
-      if (socket) socket.disconnect();
-    };
+    return () => { if (socket) socket.disconnect(); };
   }, [user?._id, user?.wallet]);
 
   const pending = bookings.filter((b) => b.status === "pending").length;
@@ -3098,13 +3113,8 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
 
   // Real-time socket listeners
   useEffect(() => {
-    let socket = null;
-    try {
-      socket = io(window.location.origin, {
-        auth: { token: localStorage.getItem("token") },
-        transports: ["websocket", "polling"],
-      });
-
+    const socket = getAppSocket({ auth: { token: localStorage.getItem("token") } });
+    if (socket) {
       socket.on("blockchain_ledger_entry", (entry) => {
         if (!entry) return;
         setBcRecords((prev) => [entry, ...prev.filter((x) => x._id !== entry._id)]);
@@ -3137,8 +3147,6 @@ function Wallet({ user, wallet, setWallet, notify, connectWallet, refreshUser, s
           setRelayerStatus((prev) => prev ? ({ ...prev, claimsRemainingToday: data.claimsRemainingToday }) : prev);
         }
       });
-    } catch (e) {
-      console.warn("Wallet socket listener error:", e);
     }
 
     return () => {

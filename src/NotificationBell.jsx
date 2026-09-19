@@ -86,29 +86,44 @@ export default function NotificationBell({ user, notify }) {
       .catch((e) => console.error("Failed to load notifications:", e))
       .finally(() => setLoading(false));
 
-    // Connect to Socket.io
-    const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
-    const socket = io(socketUrl, {
-      auth: { token },
-      transports: ["websocket", "polling"],
-    });
+    // Connect to Socket.io safely (skip if on Netlify without custom socket backend)
+    const customSocketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.VITE_API_URL?.startsWith("http") ? import.meta.env.VITE_API_URL : null);
+    if (!customSocketUrl && typeof window !== "undefined" && window.location.hostname.includes("netlify.app")) {
+      return;
+    }
 
-    socket.emit("join", user._id);
+    const socketUrl = customSocketUrl || (typeof window !== "undefined" ? window.location.origin : "");
+    if (!socketUrl) return;
 
-    socket.on("notification", (newNotif) => {
-      setNotifications((prev) => {
-        // Prevent duplicate items
-        if (prev.some((n) => n._id === newNotif._id)) return prev;
-        return [newNotif, ...prev];
+    let socket = null;
+    try {
+      socket = io(socketUrl, {
+        auth: { token },
+        transports: ["websocket", "polling"],
+        reconnectionAttempts: 2,
+        timeout: 3000,
       });
 
-      if (notify) {
-        notify(`🔔 ${newNotif.title}: ${newNotif.body || newNotif.message || ""}`, "info");
-      }
-    });
+      socket.emit("join", user._id);
+
+      socket.on("notification", (newNotif) => {
+        setNotifications((prev) => {
+          if (prev.some((n) => n._id === newNotif._id)) return prev;
+          return [newNotif, ...prev];
+        });
+
+        if (notify) {
+          notify(`🔔 ${newNotif.title}: ${newNotif.body || newNotif.message || ""}`, "info");
+        }
+      });
+
+      socket.on("connect_error", () => {
+        if (socket) socket.disconnect();
+      });
+    } catch {}
 
     return () => {
-      socket.disconnect();
+      if (socket) socket.disconnect();
     };
   }, [user?._id, token, notify]);
 

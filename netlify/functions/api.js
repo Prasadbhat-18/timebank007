@@ -15,38 +15,34 @@ app.use(cors({
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-let isConnected = false;
+let cachedConn = null;
 let isSeeded = false;
 
 async function connectDB() {
-  if (mongoose.connection.readyState >= 1) return;
+  if (cachedConn && mongoose.connection.readyState === 1) {
+    return cachedConn;
+  }
+
   const uri = process.env.MONGODB_URI;
   if (!uri) {
-    throw new Error("MONGODB_URI is not set. Please add it to your Netlify Environment Variables.");
+    throw new Error("MONGODB_URI environment variable is not defined in Netlify site settings.");
   }
-  await mongoose.connect(uri);
-  isConnected = true;
+
+  cachedConn = await mongoose.connect(uri, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000,
+    maxPoolSize: 10,
+  });
 
   if (!isSeeded) {
-    try {
-      await Promise.allSettled([seedSkills(), seedColleges(), seedAdmin()]);
-      isSeeded = true;
-    } catch (e) {
-      console.warn("[Netlify Serverless] Background seed notice:", e.message);
-    }
+    isSeeded = true;
+    Promise.allSettled([seedSkills(), seedColleges(), seedAdmin()]).catch((e) => {
+      console.warn("[Netlify Serverless] Seed notice:", e?.message);
+    });
   }
-}
 
-// Ensure database connection before routing any request
-app.use(async (req, _res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    console.error("[Netlify Function DB Error]", err.message);
-    next(err);
-  }
-});
+  return cachedConn;
+}
 
 // Health check endpoint for monitoring
 app.get(["/health", "/api/health"], (_req, res) => {
@@ -71,4 +67,30 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-export const handler = serverless(app);
+const serverlessHandler = serverless(app);
+
+export const handler = async (event, context) => {
+  // CRITICAL: Tells AWS Lambda not to wait for open Mongoose TCP sockets before freezing
+  if (context) {
+    context.callbackWaitsForEmptyEventLoop = false;
+  }
+
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("[Netlify DB Connection Error]:", err.message);
+    return {
+      statusCode: 503,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+      body: JSON.stringify({
+        error: `Database unavailable: ${err.message}. Please ensure MONGODB_URI is added in Netlify and MongoDB Atlas allows Network Access from 0.0.0.0/0.`,
+      }),
+    };
+  }
+
+  return await serverlessHandler(event, context);
+};

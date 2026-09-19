@@ -6,8 +6,14 @@ import { fileURLToPath } from "url";
 import { getProvider, EXPLORER_BASE } from "./relayerService.js";
 import { TimeCreditArtifact } from "../contracts/TimeCreditArtifact.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let currentFile = "";
+try {
+  if (typeof import.meta !== "undefined" && import.meta?.url) {
+    currentFile = fileURLToPath(import.meta.url);
+  }
+} catch {}
+const __filename = currentFile || "";
+const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 const envPath = path.join(__dirname, "..", ".env");
 
 export async function deployTimeCreditContract(privateKey = null) {
@@ -82,7 +88,7 @@ export async function deployTimeCreditContract(privateKey = null) {
 }
 
 // Allow direct CLI execution: node server/deployContract.js [privateKey]
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (currentFile && process.argv && process.argv[1] === currentFile) {
   const argKey = process.argv[2] || null;
   deployTimeCreditContract(argKey)
     .then((res) => {

@@ -5,8 +5,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { User } from "./models.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let currentFile = "";
+try {
+  if (typeof import.meta !== "undefined" && import.meta?.url) {
+    currentFile = fileURLToPath(import.meta.url);
+  }
+} catch {}
+const __filename = currentFile || "";
+const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 const envPath = path.join(__dirname, "..", ".env");
 
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
@@ -22,15 +28,17 @@ if (!vapidPublicKey || !vapidPrivateKey) {
     process.env.VAPID_PUBLIC_KEY = vapidPublicKey;
     process.env.VAPID_PRIVATE_KEY = vapidPrivateKey;
 
-    // Append to .env file for persistence
-    if (fs.existsSync(envPath)) {
-      let envContent = fs.readFileSync(envPath, "utf8");
-      if (!envContent.includes("VAPID_PUBLIC_KEY=")) {
-        envContent += `\nVAPID_PUBLIC_KEY=${vapidPublicKey}\nVAPID_PRIVATE_KEY=${vapidPrivateKey}\n`;
-        fs.writeFileSync(envPath, envContent, "utf8");
+    // Append to .env file for persistence if writable
+    try {
+      if (fs.existsSync(envPath)) {
+        let envContent = fs.readFileSync(envPath, "utf8");
+        if (!envContent.includes("VAPID_PUBLIC_KEY=")) {
+          envContent += `\nVAPID_PUBLIC_KEY=${vapidPublicKey}\nVAPID_PRIVATE_KEY=${vapidPrivateKey}\n`;
+          fs.writeFileSync(envPath, envContent, "utf8");
+        }
       }
-    }
-    console.log("[WebPush] Generated new persistent VAPID keys and updated .env.");
+    } catch {}
+    console.log("[WebPush] Initialized ephemeral VAPID keys.");
   } catch (e) {
     console.warn("[WebPush] Could not generate VAPID keys automatically:", e.message);
   }

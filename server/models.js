@@ -78,7 +78,6 @@ const userSchema = new Schema({
   endorsements: [endorsementSubSchema],
 
   // ── Onboarding ──
-  welcomeShown: { type: Boolean, default: false },
 
   // ── Level Demotion Tracking ──
   lastActiveAt:       { type: Date, default: Date.now },
