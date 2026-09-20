@@ -599,12 +599,41 @@ r.post("/auth/login", async (req, res) => {
             matchedEmail: candidate.email,
             distance: otherDist,
           };
-          user.riskScore = Math.min((user.riskScore || 0) + 50, 100);
+          // Flag the current account
+          user.flagged = true;
+          user.verificationStatus = "flagged";
+          user.riskScore = Math.max(user.riskScore || 0, 95);
           if (!user.flaggedReasons) user.flaggedReasons = [];
           if (!user.flaggedReasons.includes("CROSS_ACCOUNT_FACE_MATCH")) {
             user.flaggedReasons.push("CROSS_ACCOUNT_FACE_MATCH");
           }
           await user.save();
+
+          // Also flag the original account whose face was scanned
+          candidate.flagged = true;
+          candidate.verificationStatus = "flagged";
+          candidate.riskScore = Math.max(candidate.riskScore || 0, 90);
+          if (!candidate.flaggedReasons) candidate.flaggedReasons = [];
+          if (!candidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
+            candidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
+          }
+          await candidate.save();
+
+          // Store incident in FraudReview collection
+          try {
+            await FraudReview.create({
+              type: "user",
+              targetId: user._id,
+              userId: user._id,
+              riskScore: 95,
+              reasons: ["DUPLICATE_FACE_DETECTED", "CROSS_ACCOUNT_FACE_MATCH"],
+              status: "pending",
+              note: `Login attempt for ${user.email} presented face matching registered user ${candidate.email} (distance: ${otherDist.toFixed(3)}). Both accounts flagged.`,
+            });
+          } catch (frErr) {
+            console.error("FraudReview error in login:", frErr.message);
+          }
+
           return res.status(409).json({
             code: "DUPLICATE_FACE",
             duplicateFace: true,
@@ -847,6 +876,41 @@ r.post("/auth/verify-otp", async (req, res) => {
               matchedEmail: candidate.email,
               distance: otherDist,
             };
+            // Flag the current account
+            user.flagged = true;
+            user.verificationStatus = "flagged";
+            user.riskScore = Math.max(user.riskScore || 0, 95);
+            if (!user.flaggedReasons) user.flaggedReasons = [];
+            if (!user.flaggedReasons.includes("CROSS_ACCOUNT_FACE_MATCH")) {
+              user.flaggedReasons.push("CROSS_ACCOUNT_FACE_MATCH");
+            }
+            await user.save();
+
+            // Also flag the original account whose face was scanned
+            candidate.flagged = true;
+            candidate.verificationStatus = "flagged";
+            candidate.riskScore = Math.max(candidate.riskScore || 0, 90);
+            if (!candidate.flaggedReasons) candidate.flaggedReasons = [];
+            if (!candidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
+              candidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
+            }
+            await candidate.save();
+
+            // Store incident in FraudReview collection
+            try {
+              await FraudReview.create({
+                type: "user",
+                targetId: user._id,
+                userId: user._id,
+                riskScore: 95,
+                reasons: ["DUPLICATE_FACE_DETECTED", "CROSS_ACCOUNT_FACE_MATCH"],
+                status: "pending",
+                note: `OTP Login attempt for ${user.email} presented face matching registered user ${candidate.email} (distance: ${otherDist.toFixed(3)}). Both accounts flagged.`,
+              });
+            } catch (frErr) {
+              console.error("FraudReview error in verify-otp:", frErr.message);
+            }
+
             return res.status(409).json({
               code: "DUPLICATE_FACE",
               duplicateFace: true,
@@ -953,7 +1017,8 @@ r.post("/auth/check-face", async (req, res) => {
     if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
       // Flag existing user for multi-accounting attempt
       bestMatch.flagged = true;
-      bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 85);
+      bestMatch.verificationStatus = "flagged";
+      bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 95);
       if (!bestMatch.flaggedReasons) bestMatch.flaggedReasons = [];
       if (!bestMatch.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
         bestMatch.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
@@ -1133,7 +1198,8 @@ r.post("/auth/register/student", async (req, res) => {
 
         if (matchedCandidate) {
           matchedCandidate.flagged = true;
-          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 85);
+          matchedCandidate.verificationStatus = "flagged";
+          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 95);
           if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
           if (!matchedCandidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
             matchedCandidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");
@@ -1595,7 +1661,8 @@ r.post("/auth/register/general", async (req, res) => {
 
         if (matchedCandidate) {
           matchedCandidate.flagged = true;
-          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 85);
+          matchedCandidate.verificationStatus = "flagged";
+          matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 95);
           if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
           if (!matchedCandidate.flaggedReasons.includes("DUPLICATE_FACE_ATTEMPT")) {
             matchedCandidate.flaggedReasons.push("DUPLICATE_FACE_ATTEMPT");

@@ -104,6 +104,7 @@ const userSchema = new Schema({
   idNumberHash:       { type: String, sparse: true },
   registrationIp:     { type: String, default: "" },
   verificationStatus: { type: String, enum: ["pending", "verified", "flagged", "rejected"], default: "pending" },
+  flagged:            { type: Boolean, default: false },
   riskScore:          { type: Number, default: 0 },
   flaggedReasons:     [{ type: String }],
   reviewedBy:         { type: Schema.Types.ObjectId, ref: "User", default: null },
