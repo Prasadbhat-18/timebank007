@@ -647,6 +647,11 @@ export default function App() {
       }
       notify(`Welcome back, ${u.name.split(" ")[0]}!`);
     } catch (e) {
+      if (e.duplicateFace || e.code === "DUPLICATE_FACE" || e.matchedEmail || e.data?.crossAccountFlag) {
+        const matched = e.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.data?.matchedEmail;
+        setDupeFaceModal({ matchedEmail: matched });
+        return;
+      }
       notify(e.message || "Failed to sign in", "error");
       throw e;
     }
@@ -711,6 +716,11 @@ export default function App() {
       }
       return res;
     } catch (e) {
+      if (e.duplicateFace || e.code === "DUPLICATE_FACE" || e.matchedEmail || e.data?.crossAccountFlag) {
+        const matched = e.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.data?.matchedEmail;
+        setDupeFaceModal({ matchedEmail: matched });
+        return;
+      }
       notify(e.message || "Failed to verify code", "error");
       throw e;
     }
@@ -793,6 +803,11 @@ export default function App() {
       nav("dashboard");
       notify(message || (role === "student" ? "Welcome! Student account & AICTE tracking active 🎓" : "Welcome! Account created successfully 🎉"));
     } catch (e) {
+      if (e.duplicateFace || e.code === "DUPLICATE_FACE" || e.matchedEmail || e.data?.crossAccountFlag) {
+        const matched = e.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.data?.matchedEmail;
+        setDupeFaceModal({ matchedEmail: matched });
+        return;
+      }
       notify(e.message, "error");
       throw e;
     }
@@ -880,6 +895,7 @@ export default function App() {
               nav={nav}
               initialEmail={authInitialEmail}
               onClearInitialEmail={() => setAuthInitialEmail("")}
+              setDupeFaceModal={setDupeFaceModal}
             />
           )}
           {page === "pending_approval" && (
@@ -1872,7 +1888,7 @@ function Landing({ nav }) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify, setUser, nav, initialEmail, onClearInitialEmail }) {
+function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData, notify, setUser, nav, initialEmail, onClearInitialEmail, setDupeFaceModal }) {
   const [tab, setTab] = useState("login"); // login, register, forgot
   const [regRole, setRegRole] = useState(null); // null | 'student' | 'general_user'
   
@@ -1981,7 +1997,11 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
         await doLoginWithOtp(le, loginOtp, faceDescriptor);
       }
     } catch (e) {
-      if (e.code === "USER_NOT_FOUND" || e.notRegistered || e.message?.includes("No TimeBank account found")) {
+      if (e.duplicateFace || e.code === "DUPLICATE_FACE" || e.matchedEmail || e.data?.crossAccountFlag) {
+        const matched = e.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.data?.matchedEmail;
+        if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
+        setError(`Biometric scan matches existing registered account (${matched}).`);
+      } else if (e.code === "USER_NOT_FOUND" || e.notRegistered || e.message?.includes("No TimeBank account found")) {
         setError("No TimeBank account exists with this email. Please click Sign Up to create your account.");
       } else {
         setError(e.message || "Verification failed. Please check the code.");
@@ -2039,7 +2059,13 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     try {
       await doLogin(le, lp, faceDescriptor);
     } catch (e) {
-      setError(e.message || "Failed to sign in");
+      if (e.duplicateFace || e.code === "DUPLICATE_FACE" || e.matchedEmail || e.data?.crossAccountFlag) {
+        const matched = e.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.data?.matchedEmail;
+        if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
+        setError(`Biometric scan matches existing registered account (${matched}).`);
+      } else {
+        setError(e.message || "Failed to sign in");
+      }
     } finally {
       setLoading(false);
     }
@@ -2344,10 +2370,27 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                         {showFaceScan && (
                           <div style={{ marginTop: 10 }}>
                             <FaceVerification
-                              onCaptured={(desc) => {
+                              onCaptured={async (desc) => {
                                 setFaceDescriptor(desc);
                                 setShowFaceScan(false);
-                                if (notify) notify("Face scan captured successfully! 👤✓");
+                                try {
+                                  const checkRes = await api.checkFaceDuplicate(desc, le || "");
+                                  if (checkRes.duplicate) {
+                                    if (setDupeFaceModal) {
+                                      setDupeFaceModal({ matchedEmail: checkRes.matchedEmail });
+                                    }
+                                    if (notify) notify(`Face scan matches existing account (${checkRes.matchedEmail}). Please sign in with that account.`, "warning");
+                                  } else {
+                                    if (notify) notify("Face scan captured successfully! 👤✓");
+                                  }
+                                } catch (err) {
+                                  if (err.duplicateFace || err.code === "DUPLICATE_FACE" || err.matchedEmail) {
+                                    const matched = err.matchedEmail || err.data?.matchedEmail;
+                                    if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
+                                  } else {
+                                    if (notify) notify("Face scan captured successfully! 👤✓");
+                                  }
+                                }
                               }}
                             />
                           </div>
@@ -2422,10 +2465,27 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                     {showFaceScan && (
                       <div style={{ marginTop: 10 }}>
                         <FaceVerification
-                          onCaptured={(desc) => {
+                          onCaptured={async (desc) => {
                             setFaceDescriptor(desc);
                             setShowFaceScan(false);
-                            if (notify) notify("Face scan captured successfully! 👤✓");
+                            try {
+                              const checkRes = await api.checkFaceDuplicate(desc, le || "");
+                              if (checkRes.duplicate) {
+                                if (setDupeFaceModal) {
+                                  setDupeFaceModal({ matchedEmail: checkRes.matchedEmail });
+                                }
+                                if (notify) notify(`Face scan matches existing account (${checkRes.matchedEmail}). Please sign in with that account.`, "warning");
+                              } else {
+                                if (notify) notify("Face scan captured successfully! 👤✓");
+                              }
+                            } catch (err) {
+                              if (err.duplicateFace || err.code === "DUPLICATE_FACE" || err.matchedEmail) {
+                                const matched = err.matchedEmail || err.data?.matchedEmail;
+                                if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
+                              } else {
+                                if (notify) notify("Face scan captured successfully! 👤✓");
+                              }
+                            }
                           }}
                         />
                       </div>

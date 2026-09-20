@@ -213,19 +213,14 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
-              <a
-                href={api.getCertificateDownloadUrl(result.certId)}
-                target="_blank"
-                rel="noreferrer"
-                className="btn btn-p"
-                style={{ flex: 1, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              >
-                <span>⬇</span> Download Official PDF
-              </a>
-              {onClose && (
-                <button type="button" className="btn btn-o" onClick={onClose}>
-                  Close
+              {onClose ? (
+                <button type="button" className="btn btn-p" onClick={onClose} style={{ flex: 1, justifyContent: "center" }}>
+                  Verified & Close
                 </button>
+              ) : (
+                <div style={{ flex: 1, textAlign: "center", color: "var(--em)", fontWeight: 700, fontSize: 13, padding: "8px 0" }}>
+                  ✓ Valid On-Chain Credential
+                </div>
               )}
             </div>
           </motion.div>

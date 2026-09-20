@@ -100,7 +100,7 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
             onClick={() => setIssuingModal(true)}
             style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}
           >
-            <span>📜</span> Generate Certified PDF
+            <span>📜</span> Issue Accredited Certificate
           </button>
         </div>
 
@@ -156,10 +156,10 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
               Institution
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", lineHeight: 1.3, marginTop: 8 }}>
-              {user?.college || "NITK"}
+              {user?.college || user?.institution || user?.almaMater || "Independent Scholar"}
             </div>
             <div style={{ fontSize: 11, color: "var(--em)", marginTop: 2 }}>
-              ✓ Scoped Institute
+              {user?.college ? "✓ Scoped Institute" : "Independent Scholar"}
             </div>
           </div>
         </div>
@@ -192,7 +192,6 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {certificates.map((cert) => {
-              const downloadUrl = api.getCertificateDownloadUrl(cert.certId);
               return (
                 <div
                   key={cert._id || cert.certId}
@@ -242,15 +241,6 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                     >
                       📋 Copy Link
                     </button>
-                    <a
-                      href={downloadUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn btn-p btn-sm"
-                      style={{ textDecoration: "none", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
-                    >
-                      <span>⬇</span> Download PDF
-                    </a>
                   </div>
                 </div>
               );
@@ -284,7 +274,7 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
               </div>
 
               <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.5 }}>
-                Select the assessment time window. We will tally your confirmed exchanges, compute a SHA-256 integrity hash, anchor the credential to Polygon Amoy, and generate a printable PDF certificate with an official QR code.
+                Select the assessment time window. We will tally your confirmed exchanges, compute a SHA-256 integrity hash, anchor the credential to Polygon Amoy, and issue an official verifiable credential with a tamper-proof QR code.
               </p>
 
               <div className="field">
@@ -330,7 +320,7 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                   disabled={isGenerating}
                   style={{ flex: 1 }}
                 >
-                  {isGenerating ? "Signing & Generating..." : "Generate Official Certificate"}
+                  {isGenerating ? "Signing & Issuing..." : "Issue Official Certificate"}
                 </button>
                 <button
                   type="button"

@@ -15,16 +15,16 @@ const __filename = currentFile || "";
 const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 const envPath = path.join(__dirname, "..", ".env");
 
-let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+let vapidPublicKey = (process.env.VAPID_PUBLIC_KEY || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
+let vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:support@timebank.app";
 
 // Generate persistent VAPID keys if not present
 if (!vapidPublicKey || !vapidPrivateKey) {
   try {
     const keys = webpush.generateVAPIDKeys();
-    vapidPublicKey = keys.publicKey;
-    vapidPrivateKey = keys.privateKey;
+    vapidPublicKey = (keys.publicKey || "").trim().replace(/^["']|["']$/g, "");
+    vapidPrivateKey = (keys.privateKey || "").trim().replace(/^["']|["']$/g, "");
     process.env.VAPID_PUBLIC_KEY = vapidPublicKey;
     process.env.VAPID_PRIVATE_KEY = vapidPrivateKey;
 
@@ -57,14 +57,14 @@ export function getVapidPublicKey() {
   if (!vapidPublicKey || !vapidPrivateKey) {
     try {
       const keys = webpush.generateVAPIDKeys();
-      vapidPublicKey = keys.publicKey;
-      vapidPrivateKey = keys.privateKey;
+      vapidPublicKey = (keys.publicKey || "").trim().replace(/^["']|["']$/g, "");
+      vapidPrivateKey = (keys.privateKey || "").trim().replace(/^["']|["']$/g, "");
       process.env.VAPID_PUBLIC_KEY = vapidPublicKey;
       process.env.VAPID_PRIVATE_KEY = vapidPrivateKey;
       webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
     } catch {}
   }
-  return vapidPublicKey || "";
+  return (vapidPublicKey || "").trim().replace(/^["']|["']$/g, "");
 }
 
 /**

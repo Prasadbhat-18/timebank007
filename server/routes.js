@@ -11,6 +11,7 @@ import {
 import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
 import {
   hashIdentifier, euclideanDistance, checkDuplicateRegistration, calculateTransactionRisk,
+  FACE_MATCH_THRESHOLD,
 } from "./fraudService.js";
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
 import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
@@ -140,7 +141,6 @@ async function generateAnchoredTx(type = "TRANSACTION", from = "", to = "", amou
 }
 
 
-const FACE_MATCH_THRESHOLD = 0.6; // lower = stricter
 
 // Compute the correct level for a user based on XP and rating
 function computeLevel(user) {
@@ -585,20 +585,7 @@ r.post("/auth/login", async (req, res) => {
     let faceMatch = null;
     let crossAccountFlag = null;
     if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
-      if (user.faceDescriptor && user.faceDescriptor.length === 128) {
-        const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
-        faceMatch = dist <= FACE_MATCH_THRESHOLD;
-        if (!faceMatch) {
-          return res.status(401).json({
-            error: "Biometric face verification failed. Scanned face does not match the registered owner.",
-            faceMatch: false,
-          });
-        }
-      } else {
-        user.faceDescriptor = faceDescriptor;
-      }
-
-      // Check if this face belongs to ANY OTHER account in the system
+      // 1. Check if this face belongs to ANY OTHER account in the system FIRST
       const candidates = await User.find({
         _id: { $ne: user._id },
         faceDescriptor: { $exists: true, $ne: [] },
@@ -606,7 +593,7 @@ r.post("/auth/login", async (req, res) => {
       for (const candidate of candidates) {
         if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
         const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-        if (otherDist < 0.45) {
+        if (otherDist <= FACE_MATCH_THRESHOLD) {
           crossAccountFlag = {
             matchedUserId: candidate._id,
             matchedEmail: candidate.email,
@@ -618,11 +605,29 @@ r.post("/auth/login", async (req, res) => {
             user.flaggedReasons.push("CROSS_ACCOUNT_FACE_MATCH");
           }
           await user.save();
-          return res.json({
+          return res.status(409).json({
+            code: "DUPLICATE_FACE",
+            duplicateFace: true,
             crossAccountFlag,
-            error: `This face matches an existing account (${candidate.email}). Please sign in with that account.`,
+            matchedEmail: candidate.email,
+            error: `This face matches an existing registered account (${candidate.email}). Please sign in with your original account.`,
           });
         }
+      }
+
+      // 2. If no cross-account conflict, verify against this user's enrolled biometric profile
+      if (user.faceDescriptor && user.faceDescriptor.length === 128) {
+        const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
+        faceMatch = dist <= FACE_MATCH_THRESHOLD;
+        if (!faceMatch) {
+          return res.status(401).json({
+            error: "Biometric face verification failed. Scanned face does not match the registered owner.",
+            faceMatch: false,
+          });
+        }
+      } else {
+        // Enrolling own face for the first time
+        user.faceDescriptor = faceDescriptor;
       }
     }
 
@@ -828,6 +833,31 @@ r.post("/auth/verify-otp", async (req, res) => {
       // Biometric check if face was provided
       let crossAccountFlag = null;
       if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
+        // 1. Cross-account face check FIRST
+        const candidates = await User.find({
+          _id: { $ne: user._id },
+          faceDescriptor: { $exists: true, $ne: [] },
+        });
+        for (const candidate of candidates) {
+          if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
+          const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
+          if (otherDist <= FACE_MATCH_THRESHOLD) {
+            crossAccountFlag = {
+              matchedUserId: candidate._id,
+              matchedEmail: candidate.email,
+              distance: otherDist,
+            };
+            return res.status(409).json({
+              code: "DUPLICATE_FACE",
+              duplicateFace: true,
+              crossAccountFlag,
+              matchedEmail: candidate.email,
+              error: `This face matches an existing registered account (${candidate.email}). Please sign in with your original account.`,
+            });
+          }
+        }
+
+        // 2. Check user's own enrolled face
         if (user.faceDescriptor && user.faceDescriptor.length === 128) {
           const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
           if (dist > FACE_MATCH_THRESHOLD) {
@@ -838,27 +868,6 @@ r.post("/auth/verify-otp", async (req, res) => {
           }
         } else {
           user.faceDescriptor = faceDescriptor;
-        }
-
-        // Cross-account face check
-        const candidates = await User.find({
-          _id: { $ne: user._id },
-          faceDescriptor: { $exists: true, $ne: [] },
-        });
-        for (const candidate of candidates) {
-          if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-          const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-          if (otherDist < 0.45) {
-            crossAccountFlag = {
-              matchedUserId: candidate._id,
-              matchedEmail: candidate.email,
-              distance: otherDist,
-            };
-            return res.json({
-              crossAccountFlag,
-              error: `This face matches an existing account (${candidate.email}). Please sign in with that account.`,
-            });
-          }
         }
       }
 
@@ -940,8 +949,8 @@ r.post("/auth/check-face", async (req, res) => {
       }
     }
 
-    // High confidence match threshold
-    if (bestMatch && bestDistance < 0.45) {
+    // Biometric match threshold (distance <= FACE_MATCH_THRESHOLD)
+    if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
       // Flag existing user for multi-accounting attempt
       bestMatch.flagged = true;
       bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 85);

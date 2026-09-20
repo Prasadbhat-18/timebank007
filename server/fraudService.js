@@ -2,7 +2,7 @@
 import crypto from "crypto";
 import { User, Transaction, Booking } from "./models.js";
 
-const FACE_MATCH_THRESHOLD = 0.6; // Euclidean distance <= 0.6 = same person
+export const FACE_MATCH_THRESHOLD = 0.58; // Euclidean distance <= 0.58 = same person (face-api.js verified)
 const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank-fraud-hash-key";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -101,8 +101,8 @@ export async function checkDuplicateRegistration({
         bestMatch = candidate;
       }
     }
-    // High-confidence threshold (distance < 0.45)
-    if (bestMatch && bestDistance < 0.45) {
+    // Biometric match threshold (distance <= FACE_MATCH_THRESHOLD)
+    if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
       reasons.push("FACE_MATCH");
       riskScore += 100;
       return {

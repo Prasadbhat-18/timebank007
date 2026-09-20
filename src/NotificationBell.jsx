@@ -60,7 +60,7 @@ export default function NotificationBell({ user, notify }) {
       }
     } catch (err) {
       console.warn("Push toggle error:", err);
-      if (notify) notify(`Push error: ${err.message}`, "warning");
+      if (notify) notify(err.message || "Push notification setup failed. Please check browser permissions.", "info");
     } finally {
       setPushLoading(false);
     }

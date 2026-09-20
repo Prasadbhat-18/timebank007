@@ -5,17 +5,20 @@ function urlBase64ToUint8Array(base64String) {
   if (!base64String || typeof base64String !== "string") {
     throw new Error("Invalid VAPID public key string.");
   }
-  const cleanKey = base64String.trim();
-  const padding = "=".repeat((4 - (cleanKey.length % 4)) % 4);
-  const base64 = (cleanKey + padding).replace(/-/g, "+").replace(/_/g, "/");
+  let cleanKey = base64String.trim().replace(/^["']|["']$/g, "").replace(/[\r\n\s]+/g, "");
+  cleanKey = cleanKey.replace(/-/g, "+").replace(/_/g, "/");
+  while (cleanKey.length % 4 !== 0) {
+    cleanKey += "=";
+  }
   try {
-    const rawData = window.atob(base64);
+    const rawData = window.atob(cleanKey);
     const outputArray = new Uint8Array(rawData.length);
     for (let i = 0; i < rawData.length; ++i) {
       outputArray[i] = rawData.charCodeAt(i);
     }
     return outputArray;
-  } catch {
+  } catch (err) {
+    console.error("[WebPush] Base64 decode error:", err);
     throw new Error("Unable to decode VAPID public key. Please verify VAPID configuration on the server.");
   }
 }
