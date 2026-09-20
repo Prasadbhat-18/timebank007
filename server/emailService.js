@@ -425,3 +425,224 @@ ${clientUrl}/#college-admin
 
   return dispatchEmail({ to, subject, text: textContent, html: htmlContent });
 }
+
+/**
+ * Dispatches an alert email to college admin when a student submits an AICTE activity for verification
+ */
+export async function sendCollegeAdminPendingAicteEmail({ to, adminName = "Administrator", studentName, studentEmail, collegeName, collegeIdNumber, activityType, activityTitle, organizer, aiScore, aiFeedback }) {
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const subject = `🎓 New AICTE Activity Claim: ${studentName} (${activityTitle}) - TimeBank`;
+
+  const textContent = `Hello ${adminName},
+
+A student has submitted a new activity for AICTE accreditation and Time Credit verification under ${collegeName}:
+
+- Student: ${studentName} (${studentEmail})
+- USN / College ID: ${collegeIdNumber || "Not specified"}
+- Activity Title: ${activityTitle}
+- Activity Type: ${activityType}
+- Organizer: ${organizer || "N/A"}
+${aiScore !== null && aiScore !== undefined ? `- AI Genuineness Score: ${aiScore}%\n- AI Audit Feedback: ${aiFeedback || "N/A"}` : ""}
+
+Please review this activity and certificate in your Institution Admin Portal:
+${clientUrl}/#college-admin
+
+— Team TimeBank`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0c0f17; color: #f3f4f6; margin: 0; padding: 20px; }
+    .container { max-width: 560px; margin: 0 auto; background: #151a26; border-radius: 16px; border: 1px solid #2d3748; overflow: hidden; }
+    .header { background: linear-gradient(135deg, #059669 0%, #10b981 50%, #3b82f6 100%); padding: 28px 24px; text-align: center; color: white; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 800; }
+    .header p { margin: 4px 0 0; opacity: 0.95; font-size: 14px; }
+    .content { padding: 30px 24px; text-align: left; }
+    .info-table { width: 100%; border-collapse: collapse; margin: 18px 0; background: #1a2234; border-radius: 10px; border: 1px solid rgba(16,185,129,0.3); overflow: hidden; }
+    .info-table td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13.5px; }
+    .ai-box { background: rgba(139, 92, 246, 0.12); border: 1px solid rgba(139, 92, 246, 0.35); border-radius: 10px; padding: 14px 16px; margin: 16px 0; }
+    .btn { display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff !important; text-decoration: none; font-weight: 700; font-size: 14.5px; padding: 12px 28px; border-radius: 8px; }
+    .signoff { font-size: 13.5px; color: #94a3b8; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎓 AICTE Activity Verification Request</h1>
+      <p>${collegeName}</p>
+    </div>
+    <div class="content">
+      <p style="color: #e2e8f0; font-size: 15px; margin-top: 0;">
+        Hello <b>${adminName}</b>, a student has submitted an external activity for AICTE points and bonus Time Credits:
+      </p>
+
+      <table class="info-table">
+        <tr>
+          <td style="color: #94a3b8; width: 140px;">Student Name</td>
+          <td style="color: #fff; font-weight: 700;">${studentName}</td>
+        </tr>
+        <tr>
+          <td style="color: #94a3b8;">Student Email</td>
+          <td style="color: #38bdf8;">${studentEmail}</td>
+        </tr>
+        <tr>
+          <td style="color: #94a3b8;">USN / ID</td>
+          <td style="color: #fff;">${collegeIdNumber || "Not specified"}</td>
+        </tr>
+        <tr>
+          <td style="color: #94a3b8;">Activity Title</td>
+          <td style="color: #34d399; font-weight: 700;">${activityTitle}</td>
+        </tr>
+        <tr>
+          <td style="color: #94a3b8;">Activity Type</td>
+          <td style="color: #fff;">${activityType}</td>
+        </tr>
+        <tr>
+          <td style="color: #94a3b8;">Organizer</td>
+          <td style="color: #fff;">${organizer || "N/A"}</td>
+        </tr>
+      </table>
+
+      ${aiScore !== null && aiScore !== undefined ? `
+      <div class="ai-box">
+        <div style="font-weight: 700; font-size: 13.5px; color: #c084fc; margin-bottom: 4px;">
+          🤖 Automated AI Certificate Audit: ${aiScore}% Match
+        </div>
+        <div style="color: #cbd5e1; font-size: 12.5px; line-height: 1.45;">
+          ${aiFeedback || "Certificate scanned and evaluated against student name and event metadata."}
+        </div>
+      </div>
+      ` : ""}
+
+      <div style="text-align: center; margin: 26px 0;">
+        <a href="${clientUrl}/#college-admin" class="btn" target="_blank">Review & Approve in Institution Admin Portal →</a>
+      </div>
+
+      <p class="signoff">— Team TimeBank</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return dispatchEmail({ to, subject, text: textContent, html: htmlContent });
+}
+
+/**
+ * Dispatches an email to the student when their AICTE activity is approved or rejected
+ */
+export async function sendStudentAicteDecisionEmail({ to, studentName, activityTitle, decision, pts = 0, credits = 0, collegeName, adminFeedback = "", txHash = "" }) {
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const isApproved = decision === "approved";
+  const subject = isApproved 
+    ? `🎉 AICTE Activity Approved: ${activityTitle} (+${pts} pts, +${credits} cr) - TimeBank`
+    : `TimeBank Application Update: AICTE Activity Review - ${activityTitle}`;
+
+  const textContent = isApproved
+    ? `Congratulations ${studentName}!
+
+Your college administrator at ${collegeName || "your institution"} has reviewed and approved your AICTE activity: "${activityTitle}".
+
+Accreditation Summary:
+- AICTE Activity Points: +${pts} pts awarded
+- Time Credits Minted: +${credits} credits added to your balance
+${txHash ? `- Polygon Blockchain Tx: https://amoy.polygonscan.com/tx/${txHash}` : ""}
+
+Log in to TimeBank to view your updated credentials and download your verifiable certificate:
+${clientUrl}/#aicte
+
+— Team TimeBank`
+    : `Hello ${studentName},
+
+Your college administrator at ${collegeName || "your institution"} has reviewed your AICTE activity: "${activityTitle}".
+
+Decision: Not Approved
+${adminFeedback ? `Administrator Note: ${adminFeedback}` : "The uploaded documentation or details did not meet the criteria for this category."}
+
+You may submit revised documentation or discuss with your faculty coordinator.
+
+${clientUrl}/#aicte
+
+— Team TimeBank`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0c0f17; color: #f3f4f6; margin: 0; padding: 20px; }
+    .container { max-width: 560px; margin: 0 auto; background: #151a26; border-radius: 16px; border: 1px solid #2d3748; overflow: hidden; }
+    .header { background: ${isApproved ? "linear-gradient(135deg, #059669 0%, #10b981 100%)" : "linear-gradient(135deg, #991b1b 0%, #ef4444 100%)"}; padding: 28px 24px; text-align: center; color: white; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 800; }
+    .header p { margin: 4px 0 0; opacity: 0.95; font-size: 14px; }
+    .content { padding: 30px 24px; text-align: left; }
+    .badge-card { background: rgba(${isApproved ? "16,185,129" : "239,68,68"}, 0.1); border: 1.5px solid rgba(${isApproved ? "16,185,129" : "239,68,68"}, 0.35); border-radius: 12px; padding: 18px 20px; margin: 18px 0; }
+    .btn { display: inline-block; background: ${isApproved ? "linear-gradient(135deg, #10b981 0%, #059669 100%)" : "#374151"}; color: #ffffff !important; text-decoration: none; font-weight: 700; font-size: 14.5px; padding: 12px 28px; border-radius: 8px; }
+    .signoff { font-size: 13.5px; color: #94a3b8; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${isApproved ? "🎉 AICTE Activity Approved!" : "📋 AICTE Activity Update"}</h1>
+      <p>${collegeName || "Accredited Institution"}</p>
+    </div>
+    <div class="content">
+      <p style="color: #e2e8f0; font-size: 15px; margin-top: 0;">
+        Hello <b>${studentName}</b>,
+      </p>
+      <p style="color: #cbd5e1; font-size: 14px; line-height: 1.5;">
+        ${isApproved 
+          ? `Your submission for <b>"${activityTitle}"</b> has been officially approved by your institution coordinator.` 
+          : `Your submission for <b>"${activityTitle}"</b> was reviewed by your institution coordinator.`}
+      </p>
+
+      <div class="badge-card">
+        <div style="font-weight: 800; font-size: 15px; color: ${isApproved ? "#34d399" : "#f87171"}; margin-bottom: 8px;">
+          ${isApproved ? "✓ Official Verification Completed" : "Decision: Not Approved"}
+        </div>
+        ${isApproved ? `
+        <div style="display: flex; gap: 16px; margin-top: 10px;">
+          <div style="background: rgba(0,0,0,0.3); padding: 8px 14px; border-radius: 8px;">
+            <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase;">AICTE Points</div>
+            <div style="font-size: 20px; font-weight: 800; color: #c084fc;">+${pts} pts</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.3); padding: 8px 14px; border-radius: 8px;">
+            <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase;">Bonus Credits</div>
+            <div style="font-size: 20px; font-weight: 800; color: #34d399;">+${credits} cr</div>
+          </div>
+        </div>
+        ` : `
+        <div style="color: #e2e8f0; font-size: 13px; line-height: 1.45;">
+          ${adminFeedback || "The activity details did not meet the validation requirements. Please consult your institution advisor."}
+        </div>
+        `}
+      </div>
+
+      ${txHash ? `
+      <p style="font-size: 12.5px; color: #94a3b8;">
+        Polygon Blockchain Record: <a href="https://amoy.polygonscan.com/tx/${txHash}" target="_blank" style="color: #38bdf8;">View on Polygonscan ↗</a>
+      </p>
+      ` : ""}
+
+      <div style="text-align: center; margin: 26px 0;">
+        <a href="${clientUrl}/#aicte" class="btn" target="_blank">Open AICTE Portal →</a>
+      </div>
+
+      <p class="signoff">— Team TimeBank</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return dispatchEmail({ to, subject, text: textContent, html: htmlContent });
+}

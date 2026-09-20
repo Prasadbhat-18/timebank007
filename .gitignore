@@ -43,3 +43,4 @@ ml/dataset/*.csv
 !public/models/**
 !contracts/
 !netlify/
+scratch/

@@ -14,7 +14,13 @@ import {
 } from "./fraudService.js";
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
 import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
-import { sendOtpEmail, sendStudentApprovalDecisionEmail, sendCollegeAdminPendingStudentEmail } from "./emailService.js";
+import {
+  sendOtpEmail,
+  sendStudentApprovalDecisionEmail,
+  sendCollegeAdminPendingStudentEmail,
+  sendCollegeAdminPendingAicteEmail,
+  sendStudentAicteDecisionEmail
+} from "./emailService.js";
 import * as relayer from "./relayerService.js";
 import fs from "fs";
 import path from "path";
@@ -79,12 +85,19 @@ const AICTE_CFG = {
 
 // ─── LEVEL CONFIG ─────────────────────────────────────────────────────────────
 const LEVEL_CFG = {
-  1: { name: "Newcomer",         req: 0,  ratingReq: 0 },
-  2: { name: "Contributor",      req: 3,  ratingReq: 0 },
-  3: { name: "Skilled",          req: 7,  ratingReq: 4.0 },
-  4: { name: "Trusted Provider", req: 15, ratingReq: 4.0 },
-  5: { name: "Elite",            req: 30, ratingReq: 4.5 },
+  1: { name: "Newcomer",         req: 0,  ratingReq: 0,   maxCredits: 1 },
+  2: { name: "Contributor",      req: 3,  ratingReq: 0,   maxCredits: 2 },
+  3: { name: "Skilled",          req: 7,  ratingReq: 4.0, maxCredits: null },
+  4: { name: "Trusted Provider", req: 15, ratingReq: 4.0, maxCredits: null },
+  5: { name: "Elite",            req: 30, ratingReq: 4.5, maxCredits: null },
 };
+
+export function getMaxCreditsForLevel(level = 1) {
+  const lvl = parseInt(level, 10) || 1;
+  if (lvl >= 3) return Infinity;
+  if (lvl === 2) return 2;
+  return 1;
+}
 
 // ─── BADGE DEFINITIONS ────────────────────────────────────────────────────────
 const BADGE_DEFS = {
@@ -249,6 +262,8 @@ export async function seedSkills() {
 export async function seedAdmin() {
   // Migrate old "admin" roles to "websiteAdmin"
   await User.updateMany({ role: "admin" }, { $set: { role: "websiteAdmin" } });
+  // Migrate legacy "user" roles to "student"
+  await User.updateMany({ role: "user" }, { $set: { role: "student" } });
 
   const exists = await User.findOne({ role: "websiteAdmin" });
   if (!exists) {
@@ -2427,12 +2442,24 @@ r.get("/services", async (_req, res) => {
 
 r.post("/services", async (req, res) => {
   try {
-    let { skillId, customSkillName, customSkillCategory, providerId } = req.body;
+    let { skillId, customSkillName, customSkillCategory, providerId, hours } = req.body;
 
-    // Check restriction
+    // Check level-based credit limit & restriction
     if (providerId) {
       const provider = await User.findById(providerId);
       if (provider) {
+        const providerLevel = provider.level || 1;
+        const maxAllowed = getMaxCreditsForLevel(providerLevel);
+        const reqHours = parseFloat(hours) || 1;
+
+        if (reqHours > maxAllowed) {
+          return res.status(400).json({
+            error: `Your account is Level ${providerLevel} (${LEVEL_CFG[providerLevel]?.name || "Newcomer"}), which allows requesting up to ${maxAllowed} credit(s) per session. Reach Level 3 (Skilled) to unlock custom desired credit pricing!`,
+            maxCredits: maxAllowed,
+            level: providerLevel,
+          });
+        }
+
         // Offering a service lifts restriction
         if (provider.restrictionUntil && new Date(provider.restrictionUntil) > new Date()) {
           provider.restrictionUntil = null;
@@ -2472,7 +2499,24 @@ r.post("/services", async (req, res) => {
 });
 
 r.put("/services/:id", async (req, res) => {
-  try { res.json(await Service.findByIdAndUpdate(req.params.id, req.body, { new: true })); }
+  try {
+    if (req.body.hours) {
+      const service = await Service.findById(req.params.id);
+      if (service && service.providerId) {
+        const provider = await User.findById(service.providerId);
+        if (provider) {
+          const providerLevel = provider.level || 1;
+          const maxAllowed = getMaxCreditsForLevel(providerLevel);
+          if (parseFloat(req.body.hours) > maxAllowed) {
+            return res.status(400).json({
+              error: `Level ${providerLevel} (${LEVEL_CFG[providerLevel]?.name || 'Newcomer'}) limits services to ${maxAllowed} credit(s). Reach Level 3 (Skilled) for custom desired credits.`,
+            });
+          }
+        }
+      }
+    }
+    res.json(await Service.findByIdAndUpdate(req.params.id, req.body, { new: true }));
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3158,7 +3202,7 @@ r.get("/leaderboard", async (req, res) => {
     }
 
     const users = await User.find({
-      role: "user",
+      role: { $in: ["student", "user", "general_user"] },
       xp: { $gt: 0 },
       ...dateFilter,
     }).sort({ xp: -1, rep: -1 }).limit(20);
@@ -3507,6 +3551,13 @@ r.get("/aicte/user/:userId", async (req, res) => {
 r.post("/aicte", async (req, res) => {
   try {
     const user = await User.findById(req.body.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Exclusively available to students
+    if (user.role === "general_user") {
+      return res.status(403).json({ error: "AICTE Activity accreditation is exclusively available to Student accounts." });
+    }
+
     let aiScore = null;
     let aiFeedback = null;
 
@@ -3520,14 +3571,83 @@ r.post("/aicte", async (req, res) => {
       }
     }
 
+    const collegeName = (req.body.college || user.college || "").trim();
+
     const activity = await Aicte.create({
       ...req.body,
+      college: collegeName,
       pts: 0,
       credits: 0,
       verified: false,
       aiScore,
       aiFeedback,
     });
+
+    // Institute Admin Routing: Find matching administrators
+    const collegeConditions = [];
+    if (user.collegeId) {
+      collegeConditions.push({ collegeId: user.collegeId });
+    }
+    if (collegeName) {
+      collegeConditions.push({ college: new RegExp(`^${escapeRegex(collegeName)}$`, "i") });
+      collegeConditions.push({ college: new RegExp(escapeRegex(collegeName), "i") });
+    }
+
+    const adminFilter = {
+      role: { $in: ["collegeAdmin", "institute_admin"] },
+      ...(collegeConditions.length > 0 ? { $or: collegeConditions } : {})
+    };
+
+    let collegeAdmins = await User.find(adminFilter);
+    if (!collegeAdmins || collegeAdmins.length === 0) {
+      collegeAdmins = await User.find({ role: { $in: ["websiteAdmin", "super_admin"] } });
+    }
+
+    for (const admin of collegeAdmins) {
+      try {
+        await Notification.create({
+          user: admin._id,
+          type: "aicte_submission",
+          title: "New AICTE Activity Awaiting Approval 🎓",
+          body: `${user.name} from ${collegeName || "your institution"} submitted "${activity.title}" for AICTE accreditation.${aiScore !== null ? ` (AI Genuineness Score: ${aiScore}%)` : ""}`,
+          data: {
+            aicteId: activity._id,
+            studentId: user._id,
+            studentName: user.name,
+            studentEmail: user.email,
+            activityTitle: activity.title,
+            aiScore
+          },
+          read: false,
+        });
+
+        if (admin.email) {
+          sendCollegeAdminPendingAicteEmail({
+            to: admin.email,
+            adminName: admin.name || "Administrator",
+            studentName: user.name,
+            studentEmail: user.email,
+            collegeName: collegeName || admin.college || "Your Institution",
+            collegeIdNumber: user.collegeIdNumber || "",
+            activityType: activity.type,
+            activityTitle: activity.title,
+            organizer: activity.organizer,
+            aiScore,
+            aiFeedback
+          }).catch(err => console.warn("[AICTE] Email alert to admin failed:", err.message));
+        }
+      } catch (adminErr) {
+        console.warn("[AICTE] Admin routing notification error:", adminErr.message);
+      }
+    }
+
+    broadcastRealtimeEvent("aicte_submitted", {
+      activity,
+      studentName: user.name,
+      college: collegeName,
+      aiScore
+    });
+
     res.status(201).json(activity);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3857,12 +3977,32 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
     }
 
     broadcastRealtimeEvent("wallet_update", { userId: activity.userId });
+    broadcastRealtimeEvent("aicte_approved", {
+      activityId: activity._id,
+      userId: activity.userId,
+      pts: finalPts,
+      credits: finalCredits,
+      title: activity.title,
+    });
 
     await createNotification(activity.userId, "credit",
       "AICTE Activity Approved! 🎓",
       `"${activity.title}" verified — +${activity.credits} credits awarded.`,
       { credits: activity.credits, activityId: activity._id }
     );
+
+    if (user && user.email) {
+      sendStudentAicteDecisionEmail({
+        to: user.email,
+        studentName: user.name,
+        activityTitle: activity.title,
+        decision: "approved",
+        pts: finalPts,
+        credits: finalCredits,
+        collegeName: activity.college || user.college,
+        txHash: finalTxHash,
+      }).catch(err => console.warn("[AICTE] Student approval email dispatch error:", err.message));
+    }
 
     res.json(activity);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3875,11 +4015,33 @@ r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAd
     if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
       return res.status(403).json({ error: "Cannot reject activity outside your college" });
     }
-      await createNotification(activity.userId, "warning",
-        "AICTE Activity Rejected",
-        `Your activity "${activity.title}" was not approved.`,
-        {}
-      );
+
+    const user = await User.findById(activity.userId);
+    const adminFeedback = req.body?.feedback || "";
+
+    await createNotification(activity.userId, "warning",
+      "AICTE Activity Rejected",
+      `Your activity "${activity.title}" was not approved.${adminFeedback ? ` Reason: ${adminFeedback}` : ""}`,
+      { activityTitle: activity.title, feedback: adminFeedback }
+    );
+
+    if (user && user.email) {
+      sendStudentAicteDecisionEmail({
+        to: user.email,
+        studentName: user.name,
+        activityTitle: activity.title,
+        decision: "rejected",
+        collegeName: activity.college || user.college,
+        adminFeedback,
+      }).catch(err => console.warn("[AICTE] Student rejection email dispatch error:", err.message));
+    }
+
+    broadcastRealtimeEvent("aicte_rejected", {
+      activityId: activity._id,
+      userId: activity.userId,
+      title: activity.title,
+    });
+
     await Aicte.findByIdAndDelete(req.params.id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -3963,7 +4125,7 @@ r.delete("/emergency/:id", async (req, res) => {
 r.get("/website-admin/stats", requireAuth, requireRole(["websiteAdmin"]), async (_req, res) => {
   try {
     const [users, services, bookings, transactions, pendingAicte, openDisputes, restrictedUsers] = await Promise.all([
-      User.countDocuments({ role: "user" }),
+      User.countDocuments({ role: { $in: ["student", "user", "general_user"] } }),
       Service.countDocuments(),
       Booking.countDocuments(),
       Transaction.countDocuments(),
@@ -4050,7 +4212,7 @@ r.post("/website-admin/admins", requireAuth, requireRole(["websiteAdmin"]), asyn
 r.get("/college-admin/stats", requireAuth, requireRole(["collegeAdmin"]), async (req, res) => {
   try {
     const [users, pendingAicte, restrictedUsers] = await Promise.all([
-      User.countDocuments({ role: "user", college: req.user.college }),
+      User.countDocuments({ role: { $in: ["student", "user"] }, college: req.user.college }),
       Aicte.countDocuments({ verified: false, college: req.user.college }),
       User.countDocuments({ restrictionUntil: { $gt: new Date() }, college: req.user.college }),
     ]);

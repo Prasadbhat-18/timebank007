@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, cloneElement, isValidElement 
 import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
 import { io } from "socket.io-client";
-import { AICTE_CFG } from "./store.js";
+import { AICTE_CFG, LEVEL_CFG, getMaxCreditsForLevel } from "./store.js";
 import * as api from "./api.js";
 import * as chain from "./blockchain.js";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -11,6 +11,7 @@ import { getDeviceFingerprint } from "./fingerprint.js";
 import LandingChoice from "./LandingChoice.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import AICTEProgress from "./AICTEProgress.jsx";
+import LevelProgressBar from "./LevelProgressBar.jsx";
 import VerifyCertificate from "./VerifyCertificate.jsx";
 import RegistrationWizard from "./components/RegistrationWizard.jsx";
 import PWAInstallBanner from "./components/PWAInstallBanner.jsx";
@@ -892,7 +893,7 @@ export default function App() {
           {page === "services" && user && <Services {...pageProps} />}
           {page === "bookings" && user && <Bookings {...pageProps} />}
           {page === "wallet" && user && <Wallet {...pageProps} />}
-          {page === "aicte" && user && user.role === "student" && <AICTEPage {...pageProps} />}
+          {page === "aicte" && user && (user.role === "student" || (user.role === "user" && user.role !== "general_user")) && <AICTEPage {...pageProps} />}
           {page === "chat" && user && <ChatPage {...pageProps} />}
           {page === "profile" && user && <Profile {...pageProps} />}
           {page === "website-admin" && (user?.role === "websiteAdmin" || user?.role === "super_admin") && <Admin prefix="website-admin" {...pageProps} />}
@@ -1022,7 +1023,7 @@ function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   
   // AICTE tab is exclusively available for Students
-  const isStudent = user?.role === "student";
+  const isStudent = user?.role === "student" || (user?.role === "user" && user?.role !== "general_user");
   const userPages = isStudent
     ? ["dashboard", "services", "bookings", "wallet", "aicte", "chat", "profile"]
     : ["dashboard", "services", "bookings", "wallet", "chat", "profile"];
@@ -3941,6 +3942,11 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
         </motion.div>
       )}
 
+      {/* Level Progression Bar & Milestones */}
+      <motion.div {...fadeUp(0.14)}>
+        <LevelProgressBar user={user} />
+      </motion.div>
+
       <motion.div className="g3 mt2" {...fadeUp(0.15)}>
         {[
           { l: "Credits", v: user.credits },
@@ -5051,6 +5057,10 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
   const [hours, setHours] = useState(1);
   const [images, setImages] = useState([""]);
 
+  const userLevel = user?.level || 1;
+  const maxAllowedCredits = getMaxCreditsForLevel(userLevel);
+  const isDesiredUnlimited = maxAllowedCredits === Infinity;
+
   const handleAddImage = () => {
     setImages([...images, ""]);
   };
@@ -5072,6 +5082,10 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
     }
     if (skillId === "custom" && !customName.trim()) {
       notify("Please enter custom skill name", "error");
+      return;
+    }
+    if (!isDesiredUnlimited && hours > maxAllowedCredits) {
+      notify(`Level ${userLevel} allows requesting up to ${maxAllowedCredits} credit(s) per session. Reach Level 3 (Skilled) to unlock custom desired credits!`, "error");
       return;
     }
 
@@ -5143,8 +5157,34 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
       </div>
 
       <div className="field">
-        <label>Duration (hours)</label>
-        <input className="fi" type="number" value={hours} min={0.5} step={0.5} style={{ width: 120 }} onChange={(e) => setHours(parseFloat(e.target.value))} />
+        <div className="btwn" style={{ marginBottom: 4 }}>
+          <label style={{ margin: 0 }}>Duration & Time Credits</label>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: isDesiredUnlimited ? "var(--em)" : "var(--amber)" }}>
+            {isDesiredUnlimited 
+              ? "⚡ Desired Custom Credits (Level 3+)" 
+              : `🔒 Level ${userLevel} Limit: Max ${maxAllowedCredits} cr`}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            className="fi"
+            type="number"
+            value={hours}
+            min={0.5}
+            max={isDesiredUnlimited ? 24 : maxAllowedCredits}
+            step={0.5}
+            style={{ width: 120, margin: 0 }}
+            onChange={(e) => setHours(parseFloat(e.target.value) || 0.5)}
+          />
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            = {hours || 0} Time Credit{(hours || 0) === 1 ? "" : "s"}
+          </span>
+        </div>
+        {!isDesiredUnlimited && (
+          <p className="hint" style={{ fontSize: 11.5, marginTop: 4, color: "var(--text-muted)" }}>
+            Level {userLevel} ({LEVEL_CFG[userLevel]?.name || "Newcomer"}) accounts can ask for up to {maxAllowedCredits} credit(s) per session. Reach Level 3 (Skilled) to set any desired credit amount.
+          </p>
+        )}
       </div>
 
       <div className="field">

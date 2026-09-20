@@ -12,12 +12,19 @@ export const AICTE_CFG = {
 
 // ─── LEVEL CONFIGURATION ─────────────────────────────────────────────────────
 export const LEVEL_CFG = {
-  1: { name: "Newcomer",         color: "#94a3b8", icon: "🌱", req: 0,  ratingReq: 0,   perks: "Can offer services at fixed minimum credit rate" },
-  2: { name: "Contributor",      color: "#3b82f6", icon: "⭐", req: 3,  ratingReq: 0,   perks: "Profile badge, minor listing priority" },
-  3: { name: "Skilled",          color: "#8b5cf6", icon: "💎", req: 7,  ratingReq: 4.0, perks: "Custom credit pricing unlocked" },
-  4: { name: "Trusted Provider", color: "#f59e0b", icon: "🛡️", req: 15, ratingReq: 4.0, perks: "Reduced platform fee, Trusted badge" },
-  5: { name: "Elite",            color: "#ef4444", icon: "👑", req: 30, ratingReq: 4.5, perks: "Featured placement, early access" },
+  1: { name: "Newcomer",         color: "#94a3b8", icon: "🌱", req: 0,  ratingReq: 0,   maxCredits: 1,    perks: "Can offer services at fixed minimum credit rate (1 hr = 1 credit)" },
+  2: { name: "Contributor",      color: "#3b82f6", icon: "⭐", req: 3,  ratingReq: 0,   maxCredits: 2,    perks: "Can offer up to 2 credits per session, profile badge" },
+  3: { name: "Skilled",          color: "#8b5cf6", icon: "💎", req: 7,  ratingReq: 4.0, maxCredits: null, perks: "Custom desired credit pricing unlocked" },
+  4: { name: "Trusted Provider", color: "#f59e0b", icon: "🛡️", req: 15, ratingReq: 4.0, maxCredits: null, perks: "Reduced platform fee, Trusted badge, custom desired pricing" },
+  5: { name: "Elite",            color: "#ef4444", icon: "👑", req: 30, ratingReq: 4.5, maxCredits: null, perks: "Featured placement, early access, custom desired pricing" },
 };
+
+export function getMaxCreditsForLevel(level = 1) {
+  const lvl = parseInt(level, 10) || 1;
+  if (lvl >= 3) return Infinity;
+  if (lvl === 2) return 2;
+  return 1;
+}
 
 // ─── BADGE DEFINITIONS ───────────────────────────────────────────────────────
 export const BADGES = {
