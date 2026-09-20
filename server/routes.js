@@ -19,7 +19,8 @@ import {
   sendStudentApprovalDecisionEmail,
   sendCollegeAdminPendingStudentEmail,
   sendCollegeAdminPendingAicteEmail,
-  sendStudentAicteDecisionEmail
+  sendStudentAicteDecisionEmail,
+  sendEmergencySosEmail
 } from "./emailService.js";
 import * as relayer from "./relayerService.js";
 import fs from "fs";
@@ -4119,6 +4120,81 @@ r.post("/emergency", async (req, res) => {
 r.delete("/emergency/:id", async (req, res) => {
   try { await Emergency.findByIdAndDelete(req.params.id); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post("/emergency/sos-alert", async (req, res) => {
+  try {
+    const { userId, latitude, longitude, accuracy, contacts = [] } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const mapsUrl = (latitude && longitude) ? `https://www.google.com/maps?q=${latitude},${longitude}` : null;
+    const alertTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+    // 1. Broadcast real-time emergency event via WebSocket
+    broadcastRealtimeEvent("emergency_sos_broadcast", {
+      userId: user._id,
+      userName: user.name,
+      userEmail: user.email,
+      userPhone: user.phone || "Not provided",
+      college: user.college || "N/A",
+      latitude,
+      longitude,
+      accuracy,
+      mapsUrl,
+      time: alertTime,
+      contactsCount: Array.isArray(contacts) ? contacts.length : 0,
+    });
+
+    // 2. High-priority user in-app notification
+    await pushNotification(user._id, {
+      type: "warning",
+      title: "🚨 Emergency SOS Dispatched",
+      body: `SOS signal recorded at ${alertTime}.${mapsUrl ? ` Live GPS: ${mapsUrl}` : ""}`,
+      data: { latitude, longitude, mapsUrl, alertTime, url: "/dashboard" }
+    });
+
+    // 3. If student has a college, alert college admins in real-time
+    if (user.college) {
+      const collegeAdmins = await User.find({
+        role: { $in: ["collegeAdmin", "institute_admin"] },
+        college: { $regex: new RegExp(`^${user.college.trim()}$`, "i") }
+      });
+      for (const admin of collegeAdmins) {
+        await pushNotification(admin._id, {
+          type: "warning",
+          title: `🚨 STUDENT EMERGENCY SOS: ${user.name}`,
+          body: `Student ${user.name} (${user.college}) dispatched an emergency SOS alert at ${alertTime}.${mapsUrl ? ` Location: ${mapsUrl}` : ""}`,
+          data: { studentId: user._id, studentName: user.name, latitude, longitude, mapsUrl, alertTime, url: "/dashboard" }
+        });
+      }
+    }
+
+    // 4. Send instant emergency dispatch email
+    if (user.email) {
+      sendEmergencySosEmail({
+        to: user.email,
+        userName: user.name,
+        userEmail: user.email,
+        userPhone: user.phone || "Not provided",
+        collegeName: user.college || "N/A",
+        alertTime,
+        mapsUrl,
+        latitude,
+        longitude,
+        contacts,
+      }).catch((err) => console.warn("[SOS Email] failed:", err.message));
+    }
+
+    res.json({
+      success: true,
+      alertTime,
+      mapsUrl,
+      message: "Emergency SOS broadcasted in real time"
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── WEBSITE ADMIN ───────────────────────────────────────────────────────────────────

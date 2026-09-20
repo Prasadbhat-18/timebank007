@@ -646,3 +646,108 @@ ${clientUrl}/#aicte
 
   return dispatchEmail({ to, subject, text: textContent, html: htmlContent });
 }
+
+/**
+ * Sends immediate emergency SOS alert email
+ */
+export async function sendEmergencySosEmail({
+  to,
+  userName = "TimeBank User",
+  userEmail = "",
+  userPhone = "Not provided",
+  collegeName = "N/A",
+  alertTime = "",
+  mapsUrl = "",
+  latitude = null,
+  longitude = null,
+  contacts = [],
+}) {
+  const subject = `🚨 URGENT: Emergency SOS Alert Triggered for ${userName}`;
+  const clientUrl = process.env.CLIENT_URL || "https://timebank017.netlify.app";
+
+  const textContent = `
+EMERGENCY SOS ALERT
+====================
+TimeBank User: ${userName}
+Email: ${userEmail}
+Phone: ${userPhone}
+Institution: ${collegeName}
+Triggered At: ${alertTime || new Date().toLocaleString("en-IN")}
+${mapsUrl ? `Live GPS Location: ${mapsUrl}` : "Live location unavailable"}
+
+Contacts notified: ${contacts.map((c) => `${c.name} (${c.phone}, ${c.relation})`).join(", ") || "None"}
+
+Please check on the user immediately!
+`;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; margin: 0; padding: 24px; color: #f8fafc; }
+    .card { background-color: #111827; border-radius: 16px; border: 2px solid #ef4444; max-width: 580px; margin: 0 auto; overflow: hidden; box-shadow: 0 10px 40px rgba(239, 68, 68, 0.25); }
+    .header { background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%); padding: 24px 30px; text-align: center; }
+    .content { padding: 30px; }
+    .danger-box { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 18px; margin: 20px 0; }
+    .field { margin-bottom: 12px; font-size: 14px; }
+    .label { color: #94a3b8; font-weight: 600; }
+    .val { color: #fff; font-weight: 700; }
+    .btn { display: inline-block; background-color: #ef4444; color: #fff !important; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 700; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div style="font-size: 38px; line-height: 1;">🚨</div>
+      <h1 style="color: #ffffff; margin: 8px 0 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">
+        EMERGENCY SOS ALERT
+      </h1>
+      <p style="color: #fecaca; font-size: 13px; margin: 4px 0 0;">An urgent distress signal was dispatched via TimeBank</p>
+    </div>
+    <div class="content">
+      <p style="font-size: 15px; color: #e2e8f0; margin-top: 0;">
+        <strong>${userName}</strong> triggered an emergency SOS signal on the platform.
+      </p>
+
+      <div class="danger-box">
+        <div class="field"><span class="label">User Name:</span> <span class="val">${userName}</span></div>
+        <div class="field"><span class="label">Phone:</span> <span class="val">${userPhone}</span></div>
+        <div class="field"><span class="label">Email:</span> <span class="val">${userEmail}</span></div>
+        <div class="field"><span class="label">College / Campus:</span> <span class="val">${collegeName}</span></div>
+        <div class="field"><span class="label">Triggered At:</span> <span class="val">${alertTime || new Date().toLocaleString("en-IN")}</span></div>
+        ${latitude && longitude ? `
+        <div class="field"><span class="label">Coordinates:</span> <span class="val">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span></div>
+        ` : ""}
+      </div>
+
+      ${mapsUrl ? `
+      <div style="text-align: center; margin: 22px 0;">
+        <a href="${mapsUrl}" class="btn" target="_blank" style="background: #ef4444;">📍 View Live Location on Google Maps ↗</a>
+      </div>
+      ` : ""}
+
+      <div style="margin-top: 24px;">
+        <h4 style="color: #fff; margin: 0 0 10px; font-size: 14px;">Registered Emergency Contacts Alerted:</h4>
+        ${contacts.length === 0 ? `
+          <p style="color: #94a3b8; font-size: 13px;">No emergency contacts listed on account. National emergency services recommended.</p>
+        ` : contacts.map((c) => `
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">
+            <strong style="color: #fff;">${c.name}</strong> (${c.relation}) — <a href="tel:${c.phone}" style="color: #38bdf8;">${c.phone}</a>
+          </div>
+        `).join("")}
+      </div>
+
+      <div style="text-align: center; margin: 24px 0 0;">
+        <a href="${clientUrl}" style="color: #94a3b8; font-size: 12px; text-decoration: underline;" target="_blank">Open TimeBank Security Center</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+  return dispatchEmail({ to, subject, text: textContent, html: htmlContent });
+}
+

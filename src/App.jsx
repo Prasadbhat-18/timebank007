@@ -12,6 +12,7 @@ import LandingChoice from "./LandingChoice.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import AICTEProgress from "./AICTEProgress.jsx";
 import LevelProgressBar from "./LevelProgressBar.jsx";
+import SosModal from "./SosModal.jsx";
 import VerifyCertificate from "./VerifyCertificate.jsx";
 import RegistrationWizard from "./components/RegistrationWizard.jsx";
 import PWAInstallBanner from "./components/PWAInstallBanner.jsx";
@@ -2630,8 +2631,15 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
   const apts = verifiedAicte.reduce((s, a) => s + a.pts, 0);
 
   const sos = () => {
-    if (!emergency.length) { notify("No emergency contacts — add them in Profile", "warning"); return; }
-    setModal(<SosModal emergency={emergency} notify={notify} />);
+    setModal(
+      <SosModal
+        emergency={emergency}
+        user={user}
+        close={() => setModal(null)}
+        notify={notify}
+        onContactAdded={(newC) => setEmergency((prev) => [...prev, newC])}
+      />
+    );
   };
 
   return (
@@ -3961,15 +3969,54 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
       </motion.div>
 
       <motion.div className="card mt2" {...fadeUp(0.2)}>
-        <div className="btwn mb1"><span className="card-t" style={{ margin: 0 }}>Emergency contacts</span><button className="btn btn-o btn-sm" onClick={addContact}>+ Add</button></div>
-        {emergency.length === 0 ? <div className="text-m" style={{ fontSize: 13 }}>No emergency contacts added.</div> : emergency.map((c) => (
-          <div key={c._id} className="btwn mb1" style={{ padding: ".75rem", background: "var(--bg)", borderRadius: 8 }}>
-            <div className="row"><div className="av" style={{ width: 30, height: 30, fontSize: 10, background: "var(--red)" }}>{c.name[0]}</div>
-              <div><div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div><div className="text-m" style={{ fontSize: 12 }}>{c.phone} · {c.relation}</div></div>
-            </div>
-            <button className="btn btn-o btn-sm" onClick={() => removeContact(c._id)}>Remove</button>
+        <div className="btwn mb1">
+          <span className="card-t" style={{ margin: 0 }}>Emergency contacts</span>
+          <div className="row" style={{ gap: 6 }}>
+            <button
+              className="btn btn-d btn-sm"
+              onClick={() =>
+                setModal(
+                  <SosModal
+                    emergency={emergency}
+                    user={user}
+                    close={() => setModal(null)}
+                    notify={notify}
+                    onContactAdded={(newC) => setEmergency((prev) => [...prev, newC])}
+                  />
+                )
+              }
+            >
+              🚨 Emergency SOS
+            </button>
+            <button className="btn btn-o btn-sm" onClick={addContact}>+ Add</button>
           </div>
-        ))}
+        </div>
+        {emergency.length === 0 ? (
+          <div className="text-m" style={{ fontSize: 13 }}>No emergency contacts added.</div>
+        ) : (
+          emergency.map((c) => (
+            <div key={c._id} className="btwn mb1" style={{ padding: ".75rem", background: "var(--bg)", borderRadius: 8 }}>
+              <div className="row">
+                <div className="av" style={{ width: 30, height: 30, fontSize: 10, background: "var(--red)" }}>{c.name[0]}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
+                  <div className="text-m" style={{ fontSize: 12 }}>{c.phone} · {c.relation}</div>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                <a
+                  href={`tel:${c.phone.replace(/[^0-9+]/g, "")}`}
+                  className="btn btn-g btn-sm"
+                  style={{ padding: "4px 8px", fontSize: 11, textDecoration: "none" }}
+                  title="Redirect to Call Tab"
+                >
+                  📞 Call
+                </a>
+                <button className="btn btn-o btn-sm" onClick={() => removeContact(c._id)}>Remove</button>
+              </div>
+            </div>
+          ))
+        )}
       </motion.div>
     </div>
   );
@@ -4630,24 +4677,7 @@ export function ReviewModal({ booking, refreshUser, notify, close }) {
 }
 
 // ─── SOS MODAL ───────────────────────────────────────────────────────────────
-export function SosModal({ emergency, close, notify }) {
-  return (
-    <div>
-      <div className="mo-t" style={{ color: "#dc2626" }}>🚨 SOS Alert</div>
-      <p className="text-s" style={{ fontSize: 13, marginBottom: 12 }}>These contacts will be alerted:</p>
-      {emergency.map((c) => (
-        <div key={c._id} className="row mb1" style={{ background: "var(--bg)", borderRadius: 8, padding: ".75rem" }}>
-          <div className="av" style={{ background: "#dc2626", width: 32, height: 32, fontSize: 11 }}>{c.name[0]}</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
-            <div className="text-m" style={{ fontSize: 12 }}>{c.phone} · {c.relation}</div>
-          </div>
-        </div>
-      ))}
-      <button className="btn btn-d mt2" style={{ width: "100%", justifyContent: "center" }} onClick={() => { close(); notify("SOS alert sent!", "warning"); }}>Confirm — alert now</button>
-    </div>
-  );
-}
+// Imported from ./SosModal.jsx (see top of file)
 
 // ─── NEW CHAT MODAL ──────────────────────────────────────────────────────────
 export function NewChatModal({ user, users, close, load, setActiveChat, notify }) {

@@ -237,6 +237,9 @@ export const addEmergencyContact = (data) =>
   req("/emergency", { method: "POST", body: JSON.stringify(data) });
 export const removeEmergencyContact = (id) =>
   req(`/emergency/${id}`, { method: "DELETE" });
+export const triggerSosAlert = (data) =>
+  req("/emergency/sos-alert", { method: "POST", body: JSON.stringify(data) });
+
 
 // ─── Blockchain & Faucet ─────────────────────────────────────────────────────
 export const fetchBlockchainRecords = () => req("/blockchain");
