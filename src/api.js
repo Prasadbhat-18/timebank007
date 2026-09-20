@@ -172,12 +172,14 @@ export const createAicte = (data) =>
   req("/aicte", { method: "POST", body: JSON.stringify(data) });
 export const verifyAicte = (id, txHash, blockNumber, pts, credits) =>
   req(`/aicte/${id}/verify`, { method: "POST", body: JSON.stringify({ txHash, blockNumber, pts, credits }) });
-export const rejectAicte = (id) =>
-  req(`/aicte/${id}/reject`, { method: "POST" });
+export const rejectAicte = (id, feedback = "") =>
+  req(`/aicte/${id}/reject`, { method: "POST", body: JSON.stringify({ feedback }) });
 export const fetchAicteActivityPoints = () =>
   req("/aicte/activity-points");
-export const issueAicteCertificate = (periodStart, periodEnd) =>
-  req("/aicte/certificate/issue", { method: "POST", body: JSON.stringify({ periodStart, periodEnd }) });
+export const issueAicteCertificate = (studentId, periodStart, periodEnd) =>
+  req("/aicte/certificate/issue", { method: "POST", body: JSON.stringify({ studentId, periodStart, periodEnd }) });
+export const requestAicteCertificate = (periodStart, periodEnd) =>
+  req("/aicte/certificate/request", { method: "POST", body: JSON.stringify({ periodStart, periodEnd }) });
 export const getCertificateDownloadUrl = (certId) =>
   `${BASE}/aicte/certificate/${certId}/download`;
 export const verifyCertificatePublic = async (certId) => {

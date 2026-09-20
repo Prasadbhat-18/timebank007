@@ -19,6 +19,17 @@ let vapidPublicKey = (process.env.VAPID_PUBLIC_KEY || "").trim().replace(/^["']|
 let vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:support@timebank.app";
 
+// Clean up concatenated Netlify environment variable (e.g. VAPID_PUBLIC_KEY="...VAPID_PRIVATE_KEY=...")
+if (vapidPublicKey.includes("VAPID_PRIVATE_KEY=")) {
+  const parts = vapidPublicKey.split("VAPID_PRIVATE_KEY=");
+  vapidPublicKey = parts[0].trim();
+  if (!vapidPrivateKey && parts[1]) {
+    vapidPrivateKey = parts[1].trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
+    process.env.VAPID_PRIVATE_KEY = vapidPrivateKey;
+  }
+  process.env.VAPID_PUBLIC_KEY = vapidPublicKey;
+}
+
 // Generate persistent VAPID keys if not present
 if (!vapidPublicKey || !vapidPrivateKey) {
   try {
@@ -64,7 +75,11 @@ export function getVapidPublicKey() {
       webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
     } catch {}
   }
-  return (vapidPublicKey || "").trim().replace(/^["']|["']$/g, "");
+  let key = (vapidPublicKey || "").trim().replace(/^["']|["']$/g, "");
+  if (key.includes("VAPID_PRIVATE_KEY=")) {
+    key = key.split("VAPID_PRIVATE_KEY=")[0].trim();
+  }
+  return key;
 }
 
 /**

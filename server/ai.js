@@ -64,10 +64,24 @@ Example: ["id1", "id2", "id3"]
  * @param {string} eventName - The expected event name
  * @returns {Promise<{ score: number, feedback: string }>}
  */
-export async function verifyAicteCertificate(certData, studentName = "", eventName = "") {
+export async function verifyAicteCertificate(certDataOrOpts, studentName = "", eventName = "") {
+  let certData = certDataOrOpts;
+  let sName = studentName;
+  let eName = eventName;
+  if (typeof certDataOrOpts === "object" && certDataOrOpts !== null) {
+    certData = certDataOrOpts.certUrl || certDataOrOpts.certData || "";
+    sName = certDataOrOpts.studentName || certDataOrOpts.name || studentName;
+    eName = certDataOrOpts.eventName || certDataOrOpts.title || eventName;
+  }
+  certData = typeof certData === "string" ? certData.trim() : "";
+
   if (!certData) {
     return {
       score: 0,
+      verdict: "FLAGGED",
+      recipientName: sName || "Unknown",
+      issuingAuthority: "Unknown",
+      eventTitle: eName || "Unknown",
       feedback: "❌ No certificate file provided. Verification failed.",
     };
   }
@@ -75,8 +89,12 @@ export async function verifyAicteCertificate(certData, studentName = "", eventNa
   // Handle plain URL links (e.g. Google Drive, web links)
   if (certData.startsWith("http://") || certData.startsWith("https://")) {
     return {
-      score: 45,
-      feedback: `⚠️ External URL link provided (${certData.slice(0, 35)}...). Direct file upload required for AI OCR analysis. Queued for manual admin review.`,
+      score: 65,
+      verdict: "SUSPICIOUS",
+      recipientName: sName || "Student (External Link)",
+      issuingAuthority: "External Cloud Drive / Web Link",
+      eventTitle: eName || "Unverified Event",
+      feedback: `⚠️ External web link provided (${certData.slice(0, 45)}...). Direct file upload recommended for OCR extraction. Queued for manual institution admin review.`,
     };
   }
 
@@ -85,19 +103,23 @@ export async function verifyAicteCertificate(certData, studentName = "", eventNa
   if (!matches || matches.length !== 3) {
     return {
       score: 0,
+      verdict: "FLAGGED",
       feedback: "❌ Invalid certificate file format. Please upload a clear JPG, PNG, or PDF file.",
     };
   }
 
   const mimeType = matches[1].toLowerCase();
-  const data = matches[2];
+  let cleanData = matches[2].trim().replace(/[\r\n\s]+/g, "");
+  try {
+    cleanData = Buffer.from(cleanData, "base64").toString("base64");
+  } catch {}
   const isPdf = mimeType === "application/pdf";
-  const sName = (studentName || "Student").trim();
-  const eName = (eventName || "AICTE Activity").trim();
+  sName = (sName || studentName || "Student").trim();
+  eName = (eName || eventName || "AICTE Activity").trim();
 
   // If Gemini AI is configured, run real multimodal analysis
   if (ai) {
-    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"];
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
     const prompt = `You are a strict, authoritative AI Certificate & Academic Credential Auditor for the AICTE (All India Council for Technical Education) Activity Point Accreditation System.
 
 Analyze this ${isPdf ? "PDF certificate document" : "uploaded certificate image"} with high scrutiny.
@@ -139,7 +161,7 @@ Respond ONLY in valid, parseable JSON with NO markdown fences or preamble:
             contents: [
               {
                 inlineData: {
-                  data,
+                  data: cleanData,
                   mimeType,
                 },
               },
@@ -159,10 +181,11 @@ Respond ONLY in valid, parseable JSON with NO markdown fences or preamble:
 
           const parsed = JSON.parse(text);
           const score = Math.min(100, Math.max(0, parseInt(parsed.score, 10) || 0));
+          const verdict = score >= 70 ? "GENUINE" : score >= 40 ? "SUSPICIOUS" : "FLAGGED";
 
           let feedback = parsed.feedback;
           if (!feedback) {
-            if (score >= 75) {
+            if (score >= 70) {
               feedback = `✓ Authentic certificate confirmed. Issued to "${parsed.recipientName || sName}" for "${parsed.eventTitle || eName}" by "${parsed.issuingAuthority || 'Accredited Institution'}".`;
             } else if (score >= 40) {
               feedback = `⚠️ Certificate detected with minor discrepancies: Recipient "${parsed.recipientName || 'Unclear'}", Event "${parsed.eventTitle || 'Unclear'}". Manual admin review recommended.`;
@@ -171,12 +194,19 @@ Respond ONLY in valid, parseable JSON with NO markdown fences or preamble:
             }
           }
 
-          return { score, feedback };
+          return {
+            score,
+            verdict,
+            recipientName: parsed.recipientName || null,
+            issuingAuthority: parsed.issuingAuthority || null,
+            eventTitle: parsed.eventTitle || null,
+            feedback,
+          };
         })();
 
         const result = await Promise.race([
           aiPromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("AI Model Timeout")), 12000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("AI Model Timeout")), 15000)),
         ]);
 
         return result;
@@ -186,9 +216,10 @@ Respond ONLY in valid, parseable JSON with NO markdown fences or preamble:
     }
   }
 
-  // Offline fallback if Gemini is completely unavailable
+  // Fallback if AI call failed
   return {
-    score: 35,
+    score: 40,
+    verdict: "SUSPICIOUS",
     feedback: "⚠️ AI service temporarily unreachable. Document flagged for manual college administrator inspection.",
   };
 }

@@ -37,6 +37,35 @@ function generateToken(user) {
 
 const escapeRegex = (str) => String(str || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+export function isSameCollege(c1, c2) {
+  if (!c1 || !c2) return false;
+  const s1 = String(c1).trim().toLowerCase();
+  const s2 = String(c2).trim().toLowerCase();
+  if (s1 === s2) return true;
+
+  const norm = (s) => s.replace(/[^a-z0-9]/g, "");
+  const n1 = norm(s1);
+  const n2 = norm(s2);
+  if (n1 === n2) return true;
+
+  if ((n1.length >= 4 && n2.length >= 4) && (n1.includes(n2) || n2.includes(n1))) return true;
+
+  const aliases = [
+    ["nitk", "nationalinstituteoftechnologykarnataka", "nationalinstituteoftechnologykarnatakasurathkal"],
+    ["gat", "globalacademyoftechnology", "globalacademy"],
+    ["rvce", "rvcollegeofengineering"],
+    ["bmsce", "bmscollegeofengineering"],
+    ["msrit", "msramaiahinstituteoftechnology"],
+  ];
+  for (const group of aliases) {
+    if (group.some(a => n1.includes(a) || a.includes(n1)) && group.some(b => n2.includes(b) || b.includes(n2))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export const requireAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -1527,8 +1556,18 @@ r.post("/college-admin/approve-student/:userId", requireAuth, requireRole("colle
     if (!decision || !["approved", "rejected"].includes(decision)) {
       return res.status(400).json({ error: "Decision must be 'approved' or 'rejected'" });
     }
+
+    if (String(req.params.userId) === String(req.user.id)) {
+      return res.status(403).json({ error: "Conflict of interest: Administrators cannot approve their own registration." });
+    }
+
     const student = await User.findById(req.params.userId);
     if (!student) return res.status(404).json({ error: "Student not found" });
+
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    if (isCollegeAdmin && !isSameCollege(req.user.college, student.college)) {
+      return res.status(403).json({ error: "Access denied. You can only review student accounts from your own institution." });
+    }
 
     student.approvalStatus = decision;
     student.approvalNote = note || "";
@@ -2777,14 +2816,14 @@ r.put("/bookings/:id", async (req, res) => {
 });
 
 // ── Confirm Completion (per-party) ──
-r.post("/bookings/:id/confirm-completion", async (req, res) => {
+r.post("/bookings/:id/confirm-completion", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const callerId = req.user.id;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
-    const isProvider = booking.providerId.toString() === userId;
-    const isRequester = booking.requesterId.toString() === userId;
+    const isProvider = booking.providerId.toString() === callerId;
+    const isRequester = booking.requesterId.toString() === callerId;
 
     if (!isProvider && !isRequester) return res.status(403).json({ error: "Not part of this booking" });
 
@@ -2801,7 +2840,7 @@ r.post("/bookings/:id/confirm-completion", async (req, res) => {
     const otherPartyId = isProvider ? booking.requesterId : booking.providerId;
     await createNotification(otherPartyId, "booking",
       "Completion Confirmation Pending ✅",
-      "The other party has confirmed completion. Please confirm on your end.",
+      "The other party has confirmed completion. Please confirm on your end to finalize time exchange.",
       { bookingId: booking._id }
     );
 
@@ -2810,10 +2849,15 @@ r.post("/bookings/:id/confirm-completion", async (req, res) => {
 });
 
 // Complete booking — handles credit transfer + records
-r.post("/bookings/:id/complete", async (req, res) => {
+r.post("/bookings/:id/complete", requireAuth, async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    const isPlatformAdmin = ["websiteAdmin", "super_admin"].includes(req.user.role);
+    if (!isPlatformAdmin && (!booking.providerConfirmed || !booking.requesterConfirmed)) {
+      return res.status(400).json({ error: "Both provider and requester must independently confirm completion before the booking can be marked completed." });
+    }
     return completeBookingInternal(booking, req, res);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3114,53 +3158,108 @@ r.post("/reviews", requireAuth, async (req, res) => {
 });
 
 // ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+r.get("/notifications", requireAuth, async (req, res) => {
+  try {
+    const notifs = await Notification.find({
+      $or: [{ userId: req.user.id }, { user: req.user.id }],
+    }).sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 r.get("/notifications/user/:userId", async (req, res) => {
   try {
-    res.json(await Notification.find({ userId: req.params.userId }).sort({ createdAt: -1 }).limit(50));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const notifs = await Notification.find({
+      $or: [{ userId: req.params.userId }, { user: req.params.userId }],
+    }).sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.get("/notifications/:userId", async (req, res, next) => {
+  if (["vapid-public-key", "subscribe", "unsubscribe", "test-push", "read-all", "unread-count"].includes(req.params.userId)) {
+    return next();
+  }
+  try {
+    const notifs = await Notification.find({
+      $or: [{ userId: req.params.userId }, { user: req.params.userId }],
+    }).sort({ createdAt: -1 }).limit(50);
+    res.json(notifs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.get("/notifications/unread-count/:userId", async (req, res) => {
   try {
-    const count = await Notification.countDocuments({ userId: req.params.userId, read: false });
+    const count = await Notification.countDocuments({
+      $or: [{ userId: req.params.userId }, { user: req.params.userId }],
+      read: false,
+    });
     res.json({ count });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-r.put("/notifications/:id/read", async (req, res) => {
-  try {
-    await Notification.findByIdAndUpdate(req.params.id, { read: true });
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.post("/notifications/:id/read", async (req, res) => {
   try {
     await Notification.findByIdAndUpdate(req.params.id, { read: true });
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-r.put("/notifications/read-all/:userId", async (req, res) => {
+r.put("/notifications/:id/read", async (req, res) => {
   try {
-    await Notification.updateMany({ userId: req.params.userId, read: false }, { read: true });
+    await Notification.findByIdAndUpdate(req.params.id, { read: true });
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.post("/notifications/read-all/:userId", async (req, res) => {
   try {
-    await Notification.updateMany({ userId: req.params.userId, read: false }, { read: true });
+    await Notification.updateMany(
+      { $or: [{ userId: req.params.userId }, { user: req.params.userId }], read: false },
+      { read: true }
+    );
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.put("/notifications/read-all/:userId", async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { $or: [{ userId: req.params.userId }, { user: req.params.userId }], read: false },
+      { read: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.post("/notifications/read-all", requireAuth, async (req, res) => {
   try {
-    await Notification.updateMany({ userId: req.user.id, read: false }, { read: true });
+    await Notification.updateMany(
+      { $or: [{ userId: req.user.id }, { user: req.user.id }], read: false },
+      { read: true }
+    );
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
+
 
 // ─── DISPUTES ────────────────────────────────────────────────────────────────
 r.get("/disputes", async (_req, res) => {
@@ -3189,15 +3288,15 @@ r.post("/disputes", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.put("/disputes/:id/resolve", async (req, res) => {
+r.put("/disputes/:id/resolve", requireAuth, requireRole("websiteAdmin", "super_admin", "collegeAdmin", "institute_admin"), async (req, res) => {
   try {
-    const { resolution, resolvedBy, action } = req.body;
+    const { resolution, action } = req.body;
     const dispute = await Dispute.findById(req.params.id);
     if (!dispute) return res.status(404).json({ error: "Dispute not found" });
 
     dispute.status = "resolved";
     dispute.resolution = resolution;
-    dispute.resolvedBy = resolvedBy;
+    dispute.resolvedBy = req.user.id;
     await dispute.save();
 
     // Handle the resolution action
@@ -3253,11 +3352,11 @@ r.put("/disputes/:id/resolve", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.put("/disputes/:id/dismiss", async (req, res) => {
+r.put("/disputes/:id/dismiss", requireAuth, requireRole("websiteAdmin", "super_admin", "collegeAdmin", "institute_admin"), async (req, res) => {
   try {
     const dispute = await Dispute.findByIdAndUpdate(
       req.params.id,
-      { status: "dismissed", resolution: req.body.reason || "Dismissed by admin", resolvedBy: req.body.resolvedBy },
+      { status: "dismissed", resolution: req.body.reason || "Dismissed by admin", resolvedBy: req.user.id },
       { new: true }
     );
     res.json(dispute);
@@ -3330,7 +3429,7 @@ r.get("/aicte/activity-points", requireAuth, requireRole("student"), async (req,
       type: "service_completed",
     });
 
-    const manualAicte = await Aicte.find({ userId: studentId, verified: true });
+    const manualAicte = await Aicte.find({ userId: studentId, verified: true, status: "approved" });
     const manualPts = manualAicte.reduce((sum, a) => sum + (a.pts || 0), 0);
 
     const bookingHours = completedBookings.reduce((sum, b) => sum + (b.hours || 0), 0);
@@ -3352,16 +3451,24 @@ r.get("/aicte/activity-points", requireAuth, requireRole("student"), async (req,
   }
 });
 
-// Issue Verifiable AICTE Certificate
-r.post("/aicte/certificate/issue", requireAuth, requireRole("student"), async (req, res) => {
+// Issue Verifiable AICTE Certificate (Admin Only: College Admin / Super Admin)
+r.post("/aicte/certificate/issue", requireAuth, requireRole(["collegeAdmin", "institute_admin", "websiteAdmin", "super_admin"]), async (req, res) => {
   try {
-    const { periodStart, periodEnd } = req.body;
-    if (!periodStart || !periodEnd) {
-      return res.status(400).json({ error: "Please provide periodStart and periodEnd dates." });
+    const { studentId, periodStart, periodEnd } = req.body;
+    if (!studentId || !periodStart || !periodEnd) {
+      return res.status(400).json({ error: "Please provide studentId, periodStart, and periodEnd dates." });
     }
 
-    const student = await User.findById(req.user.id);
+    const student = await User.findById(studentId);
     if (!student) return res.status(404).json({ error: "Student not found." });
+
+    // Same-institution scoping check
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    if (isCollegeAdmin) {
+      if (!isSameCollege(req.user.college, student.college)) {
+        return res.status(403).json({ error: "Access denied. You can only issue certificates for students of your own institution." });
+      }
+    }
 
     const startDate = new Date(periodStart);
     const endDate = new Date(periodEnd);
@@ -3383,10 +3490,11 @@ r.post("/aicte/certificate/issue", requireAuth, requireRole("student"), async (r
     const totalHours = bookingHours > 0 ? bookingHours : completedTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
     const exchangeCount = completedBookings.length > 0 ? completedBookings.length : completedTxns.length;
 
-    // Fetch verified academic activities in the period
+    // Fetch verified academic activities in the period (strictly approved by institution admin)
     const manualAicte = await Aicte.find({
       userId: student._id,
       verified: true,
+      status: "approved",
       createdAt: { $gte: startDate, $lte: endDate },
     });
     const manualPts = manualAicte.reduce((sum, a) => sum + (a.pts || 0), 0);
@@ -3406,7 +3514,7 @@ r.post("/aicte/certificate/issue", requireAuth, requireRole("student"), async (r
 
     const cert = await issueCertificate({
       userId: student._id,
-      collegeId: student.collegeId || student.college,
+      collegeId: student.collegeId || student.college || req.user.college,
       activityPoints,
       totalHours,
       exchangeCount,
@@ -3418,19 +3526,57 @@ r.post("/aicte/certificate/issue", requireAuth, requireRole("student"), async (r
 
     await pushNotification(student._id, {
       type: "badge",
-      title: "AICTE Certificate Issued! 📜",
-      body: `Your certificate for ${activityPoints} points has been cryptographically generated and anchored to Polygon Amoy.`,
+      title: "AICTE Accredited Certificate Issued! 📜",
+      body: `Your institution admin at ${req.user.college || "your college"} has approved and issued your certificate for ${activityPoints} points anchored on Polygon Amoy.`,
       data: { certId: cert.certId, activityPoints, txHash },
     });
 
     res.status(201).json({
       certId: cert.certId,
       cert,
-      message: "Certificate generated successfully.",
+      message: "Certificate generated and anchored successfully.",
     });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message || "Failed to issue certificate." });
+  }
+});
+
+// Student Request for AICTE Certificate from Institution Admin
+r.post("/aicte/certificate/request", requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    const { periodStart, periodEnd } = req.body;
+    const student = await User.findById(req.user.id);
+    if (!student) return res.status(404).json({ error: "Student not found." });
+
+    const collegeName = student.college || "";
+
+    // Find institution admin for this student
+    const allAdmins = await User.find({ role: { $in: ["collegeAdmin", "institute_admin"] } });
+    let collegeAdmins = allAdmins.filter(adm => isSameCollege(adm.college, collegeName));
+    if (!collegeAdmins || collegeAdmins.length === 0) {
+      collegeAdmins = await User.find({ role: { $in: ["websiteAdmin", "super_admin"] } });
+    }
+
+    for (const admin of collegeAdmins) {
+      await pushNotification(admin._id, {
+        type: "aicte_certificate_request",
+        title: "Certificate Request Awaiting Approval 📜",
+        body: `${student.name} from ${collegeName || "your institution"} requested an official accredited AICTE certificate for review.`,
+        data: {
+          studentId: student._id,
+          studentName: student.name,
+          studentEmail: student.email,
+          periodStart,
+          periodEnd,
+          url: "/admin",
+        },
+      });
+    }
+
+    res.json({ ok: true, message: `Certificate request forwarded to the administrator of ${collegeName || "your institution"}.` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -3538,96 +3684,37 @@ r.get("/aicte/certificates/user/:userId", requireAuth, async (req, res) => {
   }
 });
 
-// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
-r.get("/notifications", requireAuth, async (req, res) => {
-  try {
-    const notifs = await Notification.find({
-      $or: [{ userId: req.user.id }, { user: req.user.id }],
-    }).sort({ createdAt: -1 }).limit(50);
-    res.json(notifs);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-r.get("/notifications/user/:userId", async (req, res) => {
-  try {
-    const notifs = await Notification.find({
-      $or: [{ userId: req.params.userId }, { user: req.params.userId }],
-    }).sort({ createdAt: -1 }).limit(50);
-    res.json(notifs);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-r.post("/notifications/:id/read", requireAuth, async (req, res) => {
-  try {
-    await Notification.updateOne(
-      { _id: req.params.id, $or: [{ userId: req.user.id }, { user: req.user.id }] },
-      { read: true }
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-r.put("/notifications/:id/read", requireAuth, async (req, res) => {
-  try {
-    await Notification.updateOne(
-      { _id: req.params.id, $or: [{ userId: req.user.id }, { user: req.user.id }] },
-      { read: true }
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-r.post("/notifications/read-all", requireAuth, async (req, res) => {
-  try {
-    await Notification.updateMany(
-      { $or: [{ userId: req.user.id }, { user: req.user.id }], read: false },
-      { read: true }
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-r.put("/notifications/read-all/:userId", requireAuth, async (req, res) => {
-  try {
-    await Notification.updateMany(
-      { $or: [{ userId: req.params.userId }, { user: req.params.userId }], read: false },
-      { read: true }
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 r.get("/aicte", requireAuth, requireRole(["websiteAdmin", "collegeAdmin", "super_admin", "institute_admin"]), async (req, res) => {
   try { 
-    if (req.user.role === "collegeAdmin" || req.user.role === "institute_admin") {
-      res.json(await Aicte.find({ college: req.user.college }).populate("userId", "name college avatar").sort({ createdAt: -1 }));
-    } else {
-      res.json(await Aicte.find().populate("userId", "name college avatar").sort({ createdAt: -1 }));
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    const allActivities = await Aicte.find().populate("userId", "name email college avatar collegeIdNumber").sort({ createdAt: -1 });
+
+    if (isCollegeAdmin) {
+      const scoped = allActivities.filter((a) => {
+        const studentCollege = a.userId?.college || a.college;
+        return isSameCollege(req.user.college, studentCollege) || isSameCollege(req.user.college, a.college);
+      });
+      return res.json(scoped);
     }
+
+    res.json(allActivities);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.get("/aicte/user/:userId", async (req, res) => {
-  try { res.json(await Aicte.find({ userId: req.params.userId }).populate("userId", "name college avatar").sort({ createdAt: -1 })); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    res.json(await Aicte.find({ userId: req.params.userId }).populate("userId", "name email college avatar collegeIdNumber").sort({ createdAt: -1 }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-r.post("/aicte", async (req, res) => {
+r.post("/aicte", requireAuth, async (req, res) => {
   try {
-    const user = await User.findById(req.body.userId);
+    const studentId = req.user.id || req.body.userId;
+    const user = await User.findById(studentId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // Exclusively available to students
@@ -3635,67 +3722,73 @@ r.post("/aicte", async (req, res) => {
       return res.status(403).json({ error: "AICTE Activity accreditation is exclusively available to Student accounts." });
     }
 
+    // Determine target institution: student's registered college takes priority
+    let collegeName = (user.college || req.body.college || "").trim();
+    if (!user.college && collegeName) {
+      user.college = collegeName;
+      await user.save();
+    }
+
     let aiScore = null;
     let aiFeedback = null;
+    let aiVerdict = "PENDING";
+    let aiDetails = {};
 
     if (req.body.certUrl && user) {
       try {
         const verifyRes = await verifyAicteCertificate(req.body.certUrl, user.name, req.body.title);
         aiScore = verifyRes.score;
         aiFeedback = verifyRes.feedback;
+        aiVerdict = verifyRes.verdict || (aiScore >= 70 ? "GENUINE" : aiScore >= 40 ? "SUSPICIOUS" : "FLAGGED");
+        aiDetails = {
+          recipientName: verifyRes.recipientName,
+          issuingAuthority: verifyRes.issuingAuthority,
+          eventTitle: verifyRes.eventTitle,
+        };
       } catch (err) {
         console.warn("[AICTE] Submission AI verification notice:", err.message);
       }
     }
 
-    const collegeName = (req.body.college || user.college || "").trim();
-
     const activity = await Aicte.create({
       ...req.body,
+      userId: user._id,
       college: collegeName,
       pts: 0,
       credits: 0,
       verified: false,
+      status: "pending",
       aiScore,
       aiFeedback,
+      aiVerdict,
+      aiDetails,
     });
 
-    // Institute Admin Routing: Find matching administrators
-    const collegeConditions = [];
-    if (user.collegeId) {
-      collegeConditions.push({ collegeId: user.collegeId });
-    }
-    if (collegeName) {
-      collegeConditions.push({ college: new RegExp(`^${escapeRegex(collegeName)}$`, "i") });
-      collegeConditions.push({ college: new RegExp(escapeRegex(collegeName), "i") });
-    }
+    // Institute Admin Routing: Find administrators of the same institution
+    const allAdmins = await User.find({ role: { $in: ["collegeAdmin", "institute_admin"] } });
+    let collegeAdmins = allAdmins.filter(adm => isSameCollege(adm.college, collegeName) || (user.collegeId && adm.collegeId && String(adm.collegeId) === String(user.collegeId)));
 
-    const adminFilter = {
-      role: { $in: ["collegeAdmin", "institute_admin"] },
-      ...(collegeConditions.length > 0 ? { $or: collegeConditions } : {})
-    };
-
-    let collegeAdmins = await User.find(adminFilter);
+    // Fallback to websiteAdmin / super_admin if no specific institution admin registered
     if (!collegeAdmins || collegeAdmins.length === 0) {
       collegeAdmins = await User.find({ role: { $in: ["websiteAdmin", "super_admin"] } });
     }
 
     for (const admin of collegeAdmins) {
       try {
-        await Notification.create({
-          user: admin._id,
+        await pushNotification(admin._id, {
           type: "aicte_submission",
           title: "New AICTE Activity Awaiting Approval 🎓",
-          body: `${user.name} from ${collegeName || "your institution"} submitted "${activity.title}" for AICTE accreditation.${aiScore !== null ? ` (AI Genuineness Score: ${aiScore}%)` : ""}`,
+          body: `${user.name} from ${collegeName || "your institution"} submitted "${activity.title}" for AICTE accreditation.${aiScore !== null ? ` (AI Genuineness: ${aiScore}% ${aiVerdict})` : ""}`,
           data: {
             aicteId: activity._id,
             studentId: user._id,
             studentName: user.name,
             studentEmail: user.email,
             activityTitle: activity.title,
-            aiScore
+            aiScore,
+            aiVerdict,
+            url: "/admin",
           },
-          read: false,
         });
 
         if (admin.email) {
@@ -3710,7 +3803,7 @@ r.post("/aicte", async (req, res) => {
             activityTitle: activity.title,
             organizer: activity.organizer,
             aiScore,
-            aiFeedback
+            aiFeedback: `${aiVerdict}: ${aiFeedback}`,
           }).catch(err => console.warn("[AICTE] Email alert to admin failed:", err.message));
         }
       } catch (adminErr) {
@@ -3722,11 +3815,14 @@ r.post("/aicte", async (req, res) => {
       activity,
       studentName: user.name,
       college: collegeName,
-      aiScore
+      aiScore,
+      aiVerdict,
     });
 
     res.status(201).json(activity);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Reviews ──
@@ -3946,7 +4042,7 @@ r.get("/ml-health", async (_req, res) => {
 
 
 // Admin verify AICTE activity (AI OCR validation)
-r.post("/aicte/:id/ai-verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+r.post("/aicte/:id/ai-verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin", "super_admin", "institute_admin"]), async (req, res) => {
   try {
     const activity = await Aicte.findById(req.params.id);
     if (!activity) return res.status(404).json({ error: "Activity not found" });
@@ -3954,14 +4050,24 @@ r.post("/aicte/:id/ai-verify", requireAuth, requireRole(["websiteAdmin", "colleg
     const user = await User.findById(activity.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
-      return res.status(403).json({ error: "Cannot verify activity outside your college" });
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    if (isCollegeAdmin) {
+      const studentCollege = user.college || activity.college;
+      if (!isSameCollege(req.user.college, studentCollege) && !isSameCollege(req.user.college, activity.college)) {
+        return res.status(403).json({ error: "Access denied. You can only verify activities from students of your same institution." });
+      }
     }
 
-    const { score, feedback } = await verifyAicteCertificate(activity.certUrl, user.name, activity.title);
+    const verifyRes = await verifyAicteCertificate(activity.certUrl, user.name, activity.title);
     
-    activity.aiScore = score;
-    activity.aiFeedback = feedback;
+    activity.aiScore = verifyRes.score;
+    activity.aiFeedback = verifyRes.feedback;
+    activity.aiVerdict = verifyRes.verdict || (verifyRes.score >= 70 ? "GENUINE" : verifyRes.score >= 40 ? "SUSPICIOUS" : "FLAGGED");
+    activity.aiDetails = {
+      recipientName: verifyRes.recipientName,
+      issuingAuthority: verifyRes.issuingAuthority,
+      eventTitle: verifyRes.eventTitle,
+    };
     await activity.save();
 
     res.json(activity);
@@ -3981,18 +4087,27 @@ r.post("/ai-chat", requireAuth, async (req, res) => {
 });
 
 // Admin verify AICTE activity
-r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAdmin", "super_admin", "institute_admin"]), async (req, res) => {
   try {
     const { txHash, blockNumber, pts, credits } = req.body;
     const activity = await Aicte.findById(req.params.id);
     if (!activity) return res.status(404).json({ error: "Activity not found" });
 
+    // Conflict of interest check: Administrators cannot approve their own activities
+    if (activity.userId && String(activity.userId) === String(req.user.id)) {
+      return res.status(403).json({ error: "Conflict of interest: Administrators cannot approve their own activities." });
+    }
+
     const user = await User.findById(activity.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // College admin scoping check
-    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
-      return res.status(403).json({ error: "Cannot verify activity outside your college" });
+    // Same-institution scoping check
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    if (isCollegeAdmin) {
+      const studentCollege = user.college || activity.college;
+      if (!isSameCollege(req.user.college, studentCollege) && !isSameCollege(req.user.college, activity.college)) {
+        return res.status(403).json({ error: "Access denied. You can only verify activities from students of your same institution." });
+      }
     }
 
     const finalCredits = credits !== undefined ? credits : (activity.credits || 1);
@@ -4016,6 +4131,10 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
     }
 
     activity.verified = true;
+    activity.status = "approved";
+    activity.reviewedBy = req.user.id;
+    activity.reviewedAt = new Date();
+    activity.rejectionReason = "";
     activity.txHash = finalTxHash;
     activity.blockNumber = finalBlockNumber;
     activity.pts = finalPts;
@@ -4064,8 +4183,8 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
 
     await createNotification(activity.userId, "credit",
       "AICTE Activity Approved! 🎓",
-      `"${activity.title}" verified — +${activity.credits} credits awarded.`,
-      { credits: activity.credits, activityId: activity._id }
+      `"${activity.title}" verified — +${activity.pts} points, +${activity.credits} credits awarded.`,
+      { credits: activity.credits, pts: activity.pts, activityId: activity._id }
     );
 
     if (user && user.email) {
@@ -4085,21 +4204,41 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), async (req, res) => {
+r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAdmin", "super_admin", "institute_admin"]), async (req, res) => {
   try {
     const activity = await Aicte.findById(req.params.id);
     if (!activity) return res.status(404).json({ error: "Activity not found" });
-    if (req.user.role === "collegeAdmin" && activity.college !== req.user.college) {
-      return res.status(403).json({ error: "Cannot reject activity outside your college" });
+
+    // Conflict of interest check: Administrators cannot reject their own activities
+    if (activity.userId && String(activity.userId) === String(req.user.id)) {
+      return res.status(403).json({ error: "Conflict of interest: Administrators cannot reject their own activities." });
     }
 
     const user = await User.findById(activity.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Same-institution scoping check
+    const isCollegeAdmin = req.user.role === "collegeAdmin" || req.user.role === "institute_admin";
+    if (isCollegeAdmin) {
+      const studentCollege = user.college || activity.college;
+      if (!isSameCollege(req.user.college, studentCollege) && !isSameCollege(req.user.college, activity.college)) {
+        return res.status(403).json({ error: "Access denied. You can only reject activities from students of your same institution." });
+      }
+    }
+
     const adminFeedback = req.body?.feedback || "";
 
+    activity.verified = false;
+    activity.status = "rejected";
+    activity.reviewedBy = req.user.id;
+    activity.reviewedAt = new Date();
+    activity.rejectionReason = adminFeedback || "Activity requirements not met.";
+    await activity.save();
+
     await createNotification(activity.userId, "warning",
-      "AICTE Activity Rejected",
-      `Your activity "${activity.title}" was not approved.${adminFeedback ? ` Reason: ${adminFeedback}` : ""}`,
-      { activityTitle: activity.title, feedback: adminFeedback }
+      "AICTE Activity Decision",
+      `Your activity "${activity.title}" was rejected by your institution admin.${adminFeedback ? ` Reason: ${adminFeedback}` : ""}`,
+      { activityTitle: activity.title, feedback: adminFeedback, activityId: activity._id }
     );
 
     if (user && user.email) {
@@ -4117,10 +4256,10 @@ r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAd
       activityId: activity._id,
       userId: activity.userId,
       title: activity.title,
+      rejectionReason: activity.rejectionReason,
     });
 
-    await Aicte.findByIdAndDelete(req.params.id);
-    res.json({ ok: true });
+    res.json({ ok: true, activity });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

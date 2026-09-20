@@ -75,55 +75,76 @@ export default function NotificationBell({ user, notify }) {
     }
   };
 
-  // Load existing notifications on mount & user change
+  // Load existing notifications on mount & user change with 6-second polling fallback
   useEffect(() => {
     if (!user?._id) return;
+    let isMounted = true;
+
+    const fetchLatest = () => {
+      api.fetchNotifications(user._id)
+        .then((data) => {
+          if (isMounted && Array.isArray(data)) {
+            setNotifications(data);
+          }
+        })
+        .catch((e) => console.warn("Polling notifications warning:", e.message))
+        .finally(() => {
+          if (isMounted) setLoading(false);
+        });
+    };
+
     setLoading(true);
-    api.fetchNotifications(user._id)
-      .then((data) => {
-        if (Array.isArray(data)) setNotifications(data);
-      })
-      .catch((e) => console.error("Failed to load notifications:", e))
-      .finally(() => setLoading(false));
+    fetchLatest();
 
-    // Connect to Socket.io safely (skip if on Netlify without custom socket backend)
+    // 6-second periodic polling fallback so notifications refresh even when sockets are unavailable or on Netlify
+    const pollInterval = setInterval(fetchLatest, 6000);
+
+    // Connect to Socket.io safely
     const customSocketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.VITE_API_URL?.startsWith("http") ? import.meta.env.VITE_API_URL : null);
-    if (!customSocketUrl && typeof window !== "undefined" && window.location.hostname.includes("netlify.app")) {
-      return;
-    }
-
-    const socketUrl = customSocketUrl || (typeof window !== "undefined" ? window.location.origin : "");
-    if (!socketUrl) return;
+    const isNetlify = typeof window !== "undefined" && window.location.hostname.includes("netlify.app");
 
     let socket = null;
-    try {
-      socket = io(socketUrl, {
-        auth: { token },
-        transports: ["websocket", "polling"],
-        reconnectionAttempts: 2,
-        timeout: 3000,
-      });
+    if (!isNetlify || customSocketUrl) {
+      const socketUrl = customSocketUrl || (typeof window !== "undefined" ? window.location.origin : "");
+      if (socketUrl) {
+        try {
+          socket = io(socketUrl, {
+            auth: { token },
+            transports: ["websocket", "polling"],
+            reconnectionAttempts: 5,
+            timeout: 5000,
+          });
 
-      socket.emit("join", user._id);
+          const joinRooms = () => {
+            socket.emit("join", user._id);
+          };
 
-      socket.on("notification", (newNotif) => {
-        setNotifications((prev) => {
-          if (prev.some((n) => n._id === newNotif._id)) return prev;
-          return [newNotif, ...prev];
-        });
+          socket.on("connect", joinRooms);
+          joinRooms();
 
-        if (notify) {
-          notify(`🔔 ${newNotif.title}: ${newNotif.body || newNotif.message || ""}`, "info");
+          socket.on("notification", (newNotif) => {
+            if (!isMounted) return;
+            setNotifications((prev) => {
+              if (prev.some((n) => n._id === newNotif._id)) return prev;
+              return [newNotif, ...prev];
+            });
+
+            if (notify) {
+              notify(`🔔 ${newNotif.title}: ${newNotif.body || newNotif.message || ""}`, "info");
+            }
+          });
+        } catch (e) {
+          console.warn("Socket connection failed:", e);
         }
-      });
-
-      socket.on("connect_error", () => {
-        if (socket) socket.disconnect();
-      });
-    } catch {}
+      }
+    }
 
     return () => {
-      if (socket) socket.disconnect();
+      isMounted = false;
+      clearInterval(pollInterval);
+      if (socket) {
+        socket.disconnect();
+      }
     };
   }, [user?._id, token, notify]);
 

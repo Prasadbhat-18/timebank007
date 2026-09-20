@@ -254,10 +254,16 @@ const aicteSchema = new Schema({
   credits:     { type: Number, required: true },
   certUrl:     { type: String, default: "" },
   verified:    { type: Boolean, default: false },
+  status:      { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+  reviewedBy:  { type: Schema.Types.ObjectId, ref: "User", default: null },
+  reviewedAt:  { type: Date, default: null },
+  rejectionReason: { type: String, default: "" },
   txHash:      { type: String, default: null },
   blockNumber: { type: Number, default: null },
   aiScore:     { type: Number, default: null },
-  aiFeedback:  { type: String, default: "" }
+  aiFeedback:  { type: String, default: "" },
+  aiVerdict:   { type: String, default: "PENDING" },
+  aiDetails:   { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

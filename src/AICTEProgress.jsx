@@ -10,14 +10,14 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
   });
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [issuingModal, setIssuingModal] = useState(false);
+  const [requestModal, setRequestModal] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 6);
     return d.toISOString().split("T")[0];
   });
   const [periodEnd, setPeriodEnd] = useState(() => new Date().toISOString().split("T")[0]);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
 
   const loadData = useCallback(() => {
     if (!user?._id) return;
@@ -37,24 +37,20 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
     loadData();
   }, [loadData]);
 
-  const handleIssueCertificate = async () => {
+  const handleRequestCertificate = async () => {
     if (!periodStart || !periodEnd) {
       notify("Please select both start and end dates.", "error");
       return;
     }
-    setIsGenerating(true);
+    setIsRequesting(true);
     try {
-      const res = await api.issueAicteCertificate(periodStart, periodEnd);
-      notify("AICTE Certificate generated and cryptographically signed! 📜", "success");
-      setIssuingModal(false);
-      loadData();
-      if (res.certId && onOpenVerify) {
-        onOpenVerify(res.certId);
-      }
+      const res = await api.requestAicteCertificate(periodStart, periodEnd);
+      notify(res.message || "Certificate request forwarded to your Institution Administrator! 📜", "success");
+      setRequestModal(false);
     } catch (err) {
-      notify(err.message || "Failed to generate certificate", "error");
+      notify(err.message || "Failed to submit certificate request", "error");
     } finally {
-      setIsGenerating(false);
+      setIsRequesting(false);
     }
   };
 
@@ -94,14 +90,19 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
             </p>
           </div>
 
-          <button
-            type="button"
-            className="btn btn-p"
-            onClick={() => setIssuingModal(true)}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}
-          >
-            <span>📜</span> Issue Accredited Certificate
-          </button>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <span className="tag tg" style={{ fontSize: 11, padding: "4px 10px" }}>
+              🏛️ Issued Exclusively by {user?.college || "Institution Admin"}
+            </span>
+            <button
+              type="button"
+              className="btn btn-o btn-sm"
+              onClick={() => setRequestModal(true)}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}
+            >
+              <span>📨</span> Request Certificate from Admin
+            </button>
+          </div>
         </div>
 
         {/* Big Numbers Grid */}
@@ -181,12 +182,12 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
         {certificates.length === 0 ? (
           <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "rgba(255, 255, 255, 0.02)", borderRadius: 12 }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>📜</div>
-            <div style={{ fontWeight: 600, color: "#fff", fontSize: 14, marginBottom: 4 }}>No Certificates Generated Yet</div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 380, margin: "0 auto 1.25rem" }}>
-              Generate your first accredited certificate for academic submissions or campus placement records.
+            <div style={{ fontWeight: 600, color: "#fff", fontSize: 14, marginBottom: 4 }}>No Accredited Certificates Issued Yet</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 420, margin: "0 auto 1.25rem", lineHeight: 1.45 }}>
+              Official accredited certificates are reviewed, cryptographically anchored, and issued exclusively by your Institution Administrator ({user?.college || "College Admin"}).
             </div>
-            <button type="button" className="btn btn-p btn-sm" onClick={() => setIssuingModal(true)}>
-              Issue Certificate Now
+            <button type="button" className="btn btn-o btn-sm" onClick={() => setRequestModal(true)}>
+              📨 Request Certificate from Admin
             </button>
           </div>
         ) : (
@@ -212,7 +213,7 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                       <span style={{ fontWeight: 700, fontSize: 14, color: "#fff" }}>
                         AICTE Certificate · {cert.activityPoints} Points
                       </span>
-                      <span className="tag tg" style={{ fontSize: 10 }}>✓ Cryptographically Verified</span>
+                      <span className="tag tg" style={{ fontSize: 10 }}>✓ Institution Admin Verified</span>
                     </div>
 
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
@@ -225,13 +226,22 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <a
+                      href={api.getCertificateDownloadUrl(cert.certId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-p btn-sm"
+                      style={{ fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      📄 Download PDF
+                    </a>
                     <button
                       type="button"
                       className="btn btn-o btn-sm"
                       onClick={() => onOpenVerify && onOpenVerify(cert.certId)}
                       style={{ fontSize: 12 }}
                     >
-                      🔍 Verify QR
+                      🔍 View Proof
                     </button>
                     <button
                       type="button"
@@ -249,36 +259,47 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
         )}
       </div>
 
-      {/* Modal: Issue Certificate */}
+      {/* Modal: Request Certificate from Admin */}
       <AnimatePresence>
-        {issuingModal && (
-          <div className="overlay" onClick={(e) => e.target.className === "overlay" && setIssuingModal(false)}>
+        {requestModal && (
+          <div className="overlay" onClick={(e) => e.target.className === "overlay" && setRequestModal(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="mo-box"
-              style={{ maxWidth: 460 }}
+              style={{ maxWidth: 480 }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>📜</span> Issue AICTE Activity Certificate
+                  <span>📨</span> Request Official AICTE Certificate
                 </h3>
                 <button
                   type="button"
-                  onClick={() => setIssuingModal(false)}
+                  onClick={() => setRequestModal(false)}
                   style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 18, cursor: "pointer" }}
                 >
                   ✕
                 </button>
               </div>
 
-              <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.5 }}>
-                Select the assessment time window. We will tally your confirmed exchanges, compute a SHA-256 integrity hash, anchor the credential to Polygon Amoy, and issue an official verifiable credential with a tamper-proof QR code.
-              </p>
+              <div
+                style={{
+                  background: "rgba(16, 185, 129, 0.08)",
+                  border: "1px solid rgba(16, 185, 129, 0.3)",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  fontSize: 12.5,
+                  color: "#d1fae5",
+                  marginBottom: "1.25rem",
+                  lineHeight: 1.45,
+                }}
+              >
+                <strong>🏛️ Institutional Authority Policy:</strong> Official AICTE certificates cannot be self-issued by students. Submitting this request forwards your confirmed hours ({stats.totalHours} hrs) and activity points ({stats.activityPoints} pts) to the Administrator of <strong>{user?.college || "your institution"}</strong> for review and Polygon Amoy cryptographic anchoring.
+              </div>
 
               <div className="field">
-                <label>Period Start Date</label>
+                <label>Assessment Period Start</label>
                 <input
                   type="date"
                   className="fi"
@@ -288,7 +309,7 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
               </div>
 
               <div className="field">
-                <label>Period End Date</label>
+                <label>Assessment Period End</label>
                 <input
                   type="date"
                   className="fi"
@@ -297,36 +318,21 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                 />
               </div>
 
-              <div
-                style={{
-                  background: "rgba(16, 185, 129, 0.06)",
-                  border: "1px solid rgba(16, 185, 129, 0.2)",
-                  borderRadius: 8,
-                  padding: "10px 12px",
-                  fontSize: 12,
-                  color: "var(--text-secondary)",
-                  marginBottom: "1.25rem",
-                  lineHeight: 1.4,
-                }}
-              >
-                <strong style={{ color: "var(--em)" }}>Verification Guarantee:</strong> The generated certificate includes a public QR code that any faculty reviewer or recruiter can verify without needing to log in.
-              </div>
-
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, marginTop: "1.5rem" }}>
                 <button
                   type="button"
                   className="btn btn-p"
-                  onClick={handleIssueCertificate}
-                  disabled={isGenerating}
-                  style={{ flex: 1 }}
+                  onClick={handleRequestCertificate}
+                  disabled={isRequesting}
+                  style={{ flex: 1, fontWeight: 700 }}
                 >
-                  {isGenerating ? "Signing & Issuing..." : "Issue Official Certificate"}
+                  {isRequesting ? "Forwarding Request..." : "Send Request to College Admin"}
                 </button>
                 <button
                   type="button"
                   className="btn btn-o"
-                  onClick={() => setIssuingModal(false)}
-                  disabled={isGenerating}
+                  onClick={() => setRequestModal(false)}
+                  disabled={isRequesting}
                 >
                   Cancel
                 </button>

@@ -1038,12 +1038,60 @@ function PendingApprovalScreen({ userId, onLogout }) {
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   // AICTE tab is exclusively available for Students
   const isStudent = user?.role === "student" || (user?.role === "user" && user?.role !== "general_user");
   const userPages = isStudent
     ? ["dashboard", "services", "bookings", "wallet", "aicte", "chat", "profile"]
     : ["dashboard", "services", "bookings", "wallet", "chat", "profile"];
+
+  const mobileNavItems = isStudent
+    ? [
+        { id: "dashboard", label: "Dashboard", icon: "📊" },
+        { id: "services", label: "Services & Skills", icon: "💼" },
+        { id: "bookings", label: "Bookings", icon: "📅" },
+        { id: "wallet", label: "Wallet & Ledger", icon: "💳" },
+        { id: "aicte", label: "AICTE Points", icon: "🎓", isAicte: true },
+        { id: "chat", label: "Messages", icon: "💬" },
+        { id: "profile", label: "Profile & Settings", icon: "👤" },
+      ]
+    : [
+        { id: "dashboard", label: "Dashboard", icon: "📊" },
+        { id: "services", label: "Services & Skills", icon: "💼" },
+        { id: "bookings", label: "Bookings", icon: "📅" },
+        { id: "wallet", label: "Wallet & Ledger", icon: "💳" },
+        { id: "chat", label: "Messages", icon: "💬" },
+        { id: "profile", label: "Profile & Settings", icon: "👤" },
+      ];
+
+  // Automatically close mobile menu upon navigation
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [page]);
+
+  // Close mobile menu if resized to desktop
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 900) {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Prevent background body scrolling while mobile drawer is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
 
   return (
     <nav className="nav">
@@ -1056,65 +1104,271 @@ function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
         </svg>
         TimeBank
       </div>
-      {user ? (
-        <>
-          {(user.role === "websiteAdmin" || user.role === "super_admin") ? (
-            <button className={`nl${page === "website-admin" ? " act" : ""}`} onClick={() => nav("website-admin")}>Platform Admin</button>
-          ) : (user.role === "collegeAdmin" || user.role === "institute_admin") ? (
-            <button className={`nl${page === "college-admin" ? " act" : ""}`} onClick={() => nav("college-admin")}>Institution Admin ({user.college || "Institute"})</button>
-          ) : (
-            userPages.map((p) => (
-              <button key={p} className={`nl${page === p ? " act" : ""}`} onClick={() => nav(p)}>
-                {p === "aicte" ? "AICTE Points 🎓" : p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>
-            ))
-          )}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="nav-badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <ClockIcon size={13} color="var(--em)" />
-              <span>{user.credits} cr</span>
-            </span>
 
-            {/* Real-time Notification Bell */}
-            <NotificationBell user={user} notify={notify} />
+      {/* ─── DESKTOP NAVIGATION (UNTOUCHED: EXACT ORIGINAL BEHAVIOR & STYLES) ─── */}
+      <div className="nav-desktop">
+        {user ? (
+          <>
+            {(user.role === "websiteAdmin" || user.role === "super_admin") ? (
+              <button className={`nl${page === "website-admin" ? " act" : ""}`} onClick={() => nav("website-admin")}>Platform Admin</button>
+            ) : (user.role === "collegeAdmin" || user.role === "institute_admin") ? (
+              <button className={`nl${page === "college-admin" ? " act" : ""}`} onClick={() => nav("college-admin")}>Institution Admin ({user.college || "Institute"})</button>
+            ) : (
+              userPages.map((p) => (
+                <button key={p} className={`nl${page === p ? " act" : ""}`} onClick={() => nav(p)}>
+                  {p === "aicte" ? "AICTE Points 🎓" : p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))
+            )}
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="nav-badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <ClockIcon size={13} color="var(--em)" />
+                <span>{user.credits} cr</span>
+              </span>
 
-            <div className="nav-av" onClick={() => nav(user.role?.includes("Admin") || user.role === "super_admin" || user.role === "institute_admin" ? (user.role === "websiteAdmin" || user.role === "super_admin" ? "website-admin" : "college-admin") : "profile")}>
-              {user.avatar}
+              {/* Real-time Notification Bell */}
+              <NotificationBell user={user} notify={notify} />
+
+              <div className="nav-av" onClick={() => nav(user.role?.includes("Admin") || user.role === "super_admin" || user.role === "institute_admin" ? (user.role === "websiteAdmin" || user.role === "super_admin" ? "website-admin" : "college-admin") : "profile")}>
+                {user.avatar}
+              </div>
+              <button className="nl" onClick={doLogout}>Sign out</button>
             </div>
-            <button className="nl" onClick={doLogout}>Sign out</button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div style={{ position: "relative", marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
-            <button className="nl" onClick={() => nav("landing")}>Home</button>
-            <button className="nav-cta" onClick={() => nav("auth")}>User Login</button>
-            
-            <div 
-              style={{ position: "relative" }} 
-              onMouseEnter={() => setAdminMenuOpen(true)} 
-              onMouseLeave={() => setAdminMenuOpen(false)}
-            >
-              <button className="nl" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", background: "rgba(255,255,255,0.05)", borderRadius: 6 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-              </button>
+          </>
+        ) : (
+          <>
+            <div style={{ position: "relative", marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
+              <button className="nl" onClick={() => nav("landing")}>Home</button>
+              <button className="nav-cta" onClick={() => nav("auth")}>User Login</button>
               
-              {adminMenuOpen && (
-                <div style={{ position: "absolute", top: "100%", right: 0, paddingTop: 8, minWidth: 200, zIndex: 100 }}>
-                  <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
-                    <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)", borderRadius: 0 }} onClick={() => nav("college-admin-login")}>Institution Admin</button>
-                    <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderRadius: 0 }} onClick={() => nav("website-admin-login")}>Platform Admin</button>
+              <div 
+                style={{ position: "relative" }} 
+                onMouseEnter={() => setAdminMenuOpen(true)} 
+                onMouseLeave={() => setAdminMenuOpen(false)}
+              >
+                <button className="nl" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", background: "rgba(255,255,255,0.05)", borderRadius: 6 }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                  </svg>
+                </button>
+                
+                {adminMenuOpen && (
+                  <div style={{ position: "absolute", top: "100%", right: 0, paddingTop: 8, minWidth: 200, zIndex: 100 }}>
+                    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
+                      <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)", borderRadius: 0 }} onClick={() => nav("college-admin-login")}>Institution Admin</button>
+                      <button className="nl" style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderRadius: 0 }} onClick={() => nav("website-admin-login")}>Platform Admin</button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
+
+      {/* ─── MOBILE HEADER BAR (VISIBLE <= 900px) ─── */}
+      <div className="nav-mobile-bar">
+        {user && (
+          <span className="nav-badge" style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11px" }}>
+            <ClockIcon size={12} color="var(--em)" />
+            <span>{user.credits} cr</span>
+          </span>
+        )}
+        {user && <NotificationBell user={user} notify={notify} />}
+        {!user && (
+          <button className="nav-cta" style={{ padding: "6px 14px", fontSize: "12px" }} onClick={() => nav("auth")}>
+            Login
+          </button>
+        )}
+        {/* Sandwich (Hamburger) Button */}
+        <button
+          className={`sandwich-btn ${mobileMenuOpen ? "open" : ""}`}
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          aria-label="Toggle navigation menu"
+        >
+          <span className="sandwich-line" />
+          <span className="sandwich-line" />
+          <span className="sandwich-line" />
+        </button>
+      </div>
+
+      {/* ─── MOBILE SLIDE-OUT DRAWER (FULL FEATURES PRESERVED) ─── */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="mobile-drawer-backdrop"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 26, stiffness: 280 }}
+              className="mobile-drawer"
+            >
+              <div className="mobile-drawer-header">
+                <div className="row" style={{ gap: 8 }}>
+                  <svg className="nav-clock" viewBox="0 0 28 28" fill="none" style={{ width: 24, height: 24 }}>
+                    <circle cx="14" cy="14" r="12" stroke="#00c27a" strokeWidth="1.5" />
+                    <line x1="14" y1="14" x2={14 + 9 * Math.sin((clockAngle.h * Math.PI) / 180)} y2={14 - 9 * Math.cos((clockAngle.h * Math.PI) / 180)} stroke="#00c27a" strokeWidth="2" strokeLinecap="round" />
+                    <line x1="14" y1="14" x2={14 + 11 * Math.sin((clockAngle.m * Math.PI) / 180)} y2={14 - 11 * Math.cos((clockAngle.m * Math.PI) / 180)} stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />
+                    <circle cx="14" cy="14" r="1.5" fill="#00c27a" />
+                  </svg>
+                  <span style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>TimeBank Menu</span>
+                </div>
+                <button
+                  className="mobile-drawer-close"
+                  onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Close menu"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mobile-drawer-content">
+                {user ? (
+                  <>
+                    {/* User Profile Mini-Card */}
+                    <div
+                      className="mobile-user-card"
+                      onClick={() => {
+                        nav(user.role?.includes("Admin") || user.role === "super_admin" || user.role === "institute_admin"
+                          ? (user.role === "websiteAdmin" || user.role === "super_admin" ? "website-admin" : "college-admin")
+                          : "profile");
+                        setMobileMenuOpen(false);
+                      }}
+                    >
+                      <div className="nav-av" style={{ width: 42, height: 42, fontSize: 15 }}>
+                        {user.avatar}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {user.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {user.email}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                          <span className="tag tg" style={{ fontSize: 10, padding: "1px 6px" }}>
+                            {user.role === "student" ? "🎓 Student" : user.role?.includes("Admin") || user.role === "super_admin" ? "🛡️ Admin" : "👤 Member"}
+                          </span>
+                          {user.college && (
+                            <span className="tag tb" style={{ fontSize: 10, padding: "1px 6px", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {user.college}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Balance Banner */}
+                    <div className="mobile-balance-banner">
+                      <div style={{ fontSize: 10.5, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 }}>
+                        Available Time Credits
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                        <ClockIcon size={15} color="var(--em)" />
+                        <span style={{ fontSize: 17, fontWeight: 800, color: "var(--em)" }}>{user.credits} Time Credits</span>
+                      </div>
+                    </div>
+
+                    {/* Navigation Items */}
+                    <div className="mobile-nav-list">
+                      <div className="mobile-nav-group-label">NAVIGATION</div>
+                      {(user.role === "websiteAdmin" || user.role === "super_admin") ? (
+                        <button
+                          className={`mobile-nav-item${page === "website-admin" ? " act" : ""}`}
+                          onClick={() => { nav("website-admin"); setMobileMenuOpen(false); }}
+                        >
+                          <span className="mobile-nav-icon">🛡️</span>
+                          <span>Platform Admin Console</span>
+                        </button>
+                      ) : (user.role === "collegeAdmin" || user.role === "institute_admin") ? (
+                        <button
+                          className={`mobile-nav-item${page === "college-admin" ? " act" : ""}`}
+                          onClick={() => { nav("college-admin"); setMobileMenuOpen(false); }}
+                        >
+                          <span className="mobile-nav-icon">🏛️</span>
+                          <span>Institution Admin ({user.college || "Institute"})</span>
+                        </button>
+                      ) : (
+                        mobileNavItems.map((item) => (
+                          <button
+                            key={item.id}
+                            className={`mobile-nav-item${page === item.id ? " act" : ""}`}
+                            onClick={() => { nav(item.id); setMobileMenuOpen(false); }}
+                          >
+                            <span className="mobile-nav-icon">{item.icon}</span>
+                            <span>{item.label}</span>
+                            {item.isAicte && (
+                              <span className="tag tp" style={{ marginLeft: "auto", fontSize: 10, padding: "1px 6px" }}>AICTE</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Sign Out Button */}
+                    <div className="mobile-drawer-footer">
+                      <button
+                        className="mobile-logout-btn"
+                        onClick={() => { doLogout(); setMobileMenuOpen(false); }}
+                      >
+                        <span style={{ fontSize: 16 }}>🚪</span>
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mobile-nav-list" style={{ marginTop: 8 }}>
+                      <div className="mobile-nav-group-label">TIMEBANK PORTAL</div>
+                      <button
+                        className={`mobile-nav-item${page === "landing" ? " act" : ""}`}
+                        onClick={() => { nav("landing"); setMobileMenuOpen(false); }}
+                      >
+                        <span className="mobile-nav-icon">🏠</span>
+                        <span>Home</span>
+                      </button>
+                      <button
+                        className={`mobile-nav-item${page === "auth" ? " act" : ""}`}
+                        onClick={() => { nav("auth"); setMobileMenuOpen(false); }}
+                      >
+                        <span className="mobile-nav-icon">🔐</span>
+                        <span>User Login & Sign Up</span>
+                      </button>
+
+                      <div className="mobile-nav-group-label" style={{ marginTop: 14 }}>ADMINISTRATION</div>
+                      <button
+                        className={`mobile-nav-item${page === "college-admin-login" ? " act" : ""}`}
+                        onClick={() => { nav("college-admin-login"); setMobileMenuOpen(false); }}
+                      >
+                        <span className="mobile-nav-icon">🏛️</span>
+                        <span>Institution Admin Portal</span>
+                      </button>
+                      <button
+                        className={`mobile-nav-item${page === "website-admin-login" ? " act" : ""}`}
+                        onClick={() => { nav("website-admin-login"); setMobileMenuOpen(false); }}
+                      >
+                        <span className="mobile-nav-icon">🛡️</span>
+                        <span>Platform Admin Portal</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </nav>
   );
 }
@@ -3760,14 +4014,15 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
   }, [user]);
   useEffect(load, [load]);
 
-  const verified = activities.filter((a) => a.verified);
-  const pending = activities.filter((a) => !a.verified);
-  const shown = tab === "verified" ? verified : pending;
-  const totalPts = verified.reduce((s, a) => s + a.pts, 0);
-  const totalCr = verified.reduce((s, a) => s + a.credits, 0);
+  const verified = activities.filter((a) => a.verified || a.status === "approved");
+  const pending = activities.filter((a) => !a.verified && a.status !== "rejected");
+  const rejected = activities.filter((a) => a.status === "rejected");
+  const shown = tab === "verified" ? verified : tab === "pending" ? pending : rejected;
+  const totalPts = verified.reduce((s, a) => s + (a.pts || 0), 0);
+  const totalCr = verified.reduce((s, a) => s + (a.credits || 0), 0);
 
   const openSubmit = () => {
-    setModal(<SubmitAicteModal key={Date.now()} user={user} notify={notify} load={load} />);
+    setModal(<SubmitAicteModal key={Date.now()} user={user} notify={notify} load={load} close={() => setModal(null)} />);
   };
 
   return (
@@ -3784,37 +4039,105 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
         <div className="btwn mb2">
           <div className="ph" style={{ margin: 0 }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>Institutional Activity Claims</h3>
-            <p style={{ margin: "4px 0 0", fontSize: 13 }}>Submit external hackathons, workshops, and verified college projects</p>
+            <p style={{ margin: "4px 0 0", fontSize: 13 }}>
+              Activities must be verified by the administrator of <strong>{user.college || "your institution"}</strong> with real-time AI assistance
+            </p>
           </div>
           <button className="btn btn-g" onClick={openSubmit}>+ Submit Activity</button>
         </div>
 
-        <motion.div className="g3 mb2" variants={stagger} initial="initial" animate="animate">
+        <motion.div className="g4 mb2" variants={stagger} initial="initial" animate="animate" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem" }}>
           <motion.div className="stat" variants={fadeUp()}><div className="stat-l">Manual points</div><div className="stat-v text-p">{totalPts}</div></motion.div>
           <motion.div className="stat" variants={fadeUp(0.05)}><div className="stat-l">Bonus credits</div><div className="stat-v text-g">{totalCr}</div></motion.div>
           <motion.div className="stat" variants={fadeUp(0.1)}><div className="stat-l">Pending review</div><div className="stat-v text-a">{pending.length}</div></motion.div>
+          <motion.div className="stat" variants={fadeUp(0.15)}><div className="stat-l">Rejected</div><div className="stat-v" style={{ color: "#f87171" }}>{rejected.length}</div></motion.div>
         </motion.div>
         
         <div className="tab-bar">
-          <button className={`tb-btn${tab === "verified" ? " on" : ""}`} onClick={() => setTab("verified")}>Verified ({verified.length})</button>
-          <button className={`tb-btn${tab === "pending" ? " on" : ""}`} onClick={() => setTab("pending")}>Pending ({pending.length})</button>
+          <button className={`tb-btn${tab === "verified" ? " on" : ""}`} onClick={() => setTab("verified")}>
+            Verified ({verified.length})
+          </button>
+          <button className={`tb-btn${tab === "pending" ? " on" : ""}`} onClick={() => setTab("pending")}>
+            Pending Review ({pending.length})
+          </button>
+          <button className={`tb-btn${tab === "rejected" ? " on" : ""}`} onClick={() => setTab("rejected")}>
+            Rejected ({rejected.length})
+          </button>
         </div>
         
         {loading ? <div className="empty">Loading activities...</div> : shown.length === 0 ? (
-          <div className="empty">No {tab} activities recorded.</div>
+          <div className="empty">
+            {tab === "verified" && "No verified activities yet. Submit your activities to be reviewed by your college administrator."}
+            {tab === "pending" && "No activities currently pending review by your college administrator."}
+            {tab === "rejected" && "No rejected activities recorded."}
+          </div>
         ) : (
-          <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
+          <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }} variants={stagger} initial="initial" animate="animate">
             {shown.map((a) => (
-              <motion.div key={a._id} className="ac-card" variants={fadeUp()}>
-                <div className="btwn">
-                  <div className="row"><span className={`tag ${a.verified ? "tg" : "ta"}`}>{a.verified ? "Verified" : "Pending"}</span><span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span></div>
+              <motion.div key={a._id} className="ac-card" variants={fadeUp()} style={{ border: a.status === "rejected" ? "1px solid rgba(239, 68, 68, 0.3)" : undefined }}>
+                <div className="btwn" style={{ flexWrap: "wrap", gap: 8 }}>
+                  <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+                    {a.verified || a.status === "approved" ? (
+                      <span className="tag tg">✓ Verified by Admin</span>
+                    ) : a.status === "rejected" ? (
+                      <span className="tag tr" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#f87171", border: "1px solid rgba(239, 68, 68, 0.3)" }}>❌ Rejected</span>
+                    ) : (
+                      <span className="tag ta">⏳ Awaiting Review</span>
+                    )}
+                    <span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span>
+                    {a.aiVerdict && (
+                      <span
+                        className="tag"
+                        style={{
+                          background: a.aiVerdict === "GENUINE" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                          color: a.aiVerdict === "GENUINE" ? "#34d399" : "#f87171",
+                          border: `1px solid ${a.aiVerdict === "GENUINE" ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                          fontSize: 11,
+                        }}
+                      >
+                        🤖 AI Scan: {a.aiVerdict} ({a.aiDetails?.score || 0}/100)
+                      </span>
+                    )}
+                  </div>
                   <span className="text-m" style={{ fontSize: 12 }}>{a.date}</span>
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{a.title}</div>
-                <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>Organized by {a.organizer}</div>
-                <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
+
+                <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 8, color: "#fff" }}>{a.title}</div>
+                <div className="text-s" style={{ fontSize: 12.5, marginTop: 3 }}>
+                  Organized by <strong>{a.organizer}</strong> · Reviewing Authority: <strong>{a.college || user.college || "Assigned Institution Admin"}</strong>
+                </div>
+
+                {/* Status Notice for Pending Submissions */}
+                {!a.verified && a.status !== "rejected" && (
+                  <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.25)", fontSize: 12, color: "#fde68a" }}>
+                    ⏳ <strong>Awaiting verification:</strong> This activity has been forwarded exclusively to the Administrator of <strong>{a.college || user.college || "your college"}</strong>. You cannot self-verify. Points will be awarded upon admin approval.
+                  </div>
+                )}
+
+                {/* Rejection Feedback Box */}
+                {a.status === "rejected" && (
+                  <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.3)", fontSize: 12.5, color: "#fca5a5" }}>
+                    <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span>⚠️</span> Rejection Reason from Institution Administrator:
+                    </div>
+                    <div>{a.rejectionReason || "Certificate or activity could not be authenticated against college records."}</div>
+                  </div>
+                )}
+
+                {/* Points, Credits & Links */}
+                <div className="row mt1" style={{ gap: 14, fontSize: 12.5, alignItems: "center", flexWrap: "wrap" }}>
                   <span className="text-p fw7">+{a.pts} pts</span>
                   <span className="text-g fw7">+{a.credits} credits</span>
+                  {a.certUrl && (
+                    <a
+                      href={a.certUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "var(--blue)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      📄 View Certificate
+                    </a>
+                  )}
                   {a.txHash && <a href={chain.txLink(a.txHash)} target="_blank" rel="noreferrer" style={{ color: "var(--em)" }}>Polygonscan ↗</a>}
                 </div>
               </motion.div>
@@ -4141,19 +4464,21 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
   };
 
   const rejectAicte = async (a) => {
+    const reason = prompt(`Reason for rejecting "${a.title}" by ${a.userId?.name || 'student'}: (optional feedback)`) || "";
     try {
-      await api.rejectAicte(a._id);
-      notify("Activity rejected");
+      await api.rejectAicte(a._id, reason);
+      notify(`Rejected: ${a.title}`, "info");
       setPendingAicte((prev) => prev.filter((x) => x._id !== a._id));
+      api.fetchAdminStats(prefix).then(setStats).catch(() => {});
     } catch (e) { notify(e.message, "error"); }
   };
 
   const handleAiVerify = async (a) => {
     try {
-      notify("AI is verifying certificate... this may take a moment.");
+      notify("🤖 Running real-time Gemini AI Certificate Genuineness Auditor...", "info");
       const updatedActivity = await api.aiVerifyAicte(a._id);
       setPendingAicte((prev) => prev.map((x) => x._id === a._id ? updatedActivity : x));
-      notify("AI Verification completed!");
+      notify(`✓ AI Audit Complete: Score ${updatedActivity.aiScore}% (${updatedActivity.aiVerdict || 'Audited'})`, "ok");
     } catch (e) { notify(e.message, "error"); }
   };
 
@@ -4203,6 +4528,7 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
           <button key={t} className={`tb-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
             {t === "fraud" ? "🛡️ Fraud Queue"
               : t === "students" ? `🎓 Students${pendingStudents.length > 0 ? ` (${pendingStudents.length})` : ""}`
+              : t === "verify" ? `📜 AICTE Review${pendingAicte.length > 0 ? ` (${pendingAicte.length})` : ""}`
               : t.charAt(0).toUpperCase() + t.slice(1)}
             {t === "fraud" && fraudQueue.length > 0 ? ` (${fraudQueue.length})` : ""}
             {t === "verify" && pendingAicte.length > 0 ? ` (${pendingAicte.length})` : ""}
@@ -4390,61 +4716,216 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       )}
 
       {tab === "verify" && (
-        pendingAicte.length === 0 ? <div className="empty">No pending activities to verify.</div> : (
-          <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="btwn" style={{ flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+            <div>
+              <h3 style={{ color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 17 }}>
+                📜 AICTE Institutional Review ({pendingAicte.length})
+              </h3>
+              <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--text-secondary)" }}>
+                Exclusively review and issue accredited blockchain certificates for students of <strong>{user?.college || "your institution"}</strong>.
+              </p>
+            </div>
+            <button
+              className="btn btn-p btn-sm"
+              onClick={() => setModal(<AdminIssueCertificateModal adminUser={user} users={users} close={() => setModal(null)} notify={notify} />)}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}
+            >
+              <span>📜</span> Issue Accredited Certificate
+            </button>
+          </div>
+
+          {pendingAicte.length === 0 ? (
+            <div className="empty">
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📜</div>
+              <div style={{ fontWeight: 600, color: "#fff", fontSize: 14, marginBottom: 4 }}>No Pending AICTE Activities</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 420, margin: "0 auto" }}>
+                All activities from students of <strong>{user?.college || "your institution"}</strong> have been reviewed and decided.
+              </div>
+            </div>
+          ) : (
+            <motion.div style={{ display: "flex", flexDirection: "column", gap: "1rem" }} variants={stagger} initial="initial" animate="animate">
+            <div style={{
+              background: "rgba(59, 130, 246, 0.08)",
+              border: "1px solid rgba(59, 130, 246, 0.25)",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              color: "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}>
+              <span>🏛️</span>
+              <div>
+                <strong>Institutional Scoping Active:</strong> Reviewing submissions strictly from students of <strong>{user?.college || "Your Institution"}</strong>.
+              </div>
+            </div>
+
             {pendingAicte.map((a) => {
               const student = a.userId;
               const defaultPts = AICTE_CFG[a.type]?.pts || 0;
               const defaultCr = AICTE_CFG[a.type]?.credits || 0;
               const currentPts = aicteInputs[a._id]?.pts !== undefined ? aicteInputs[a._id].pts : defaultPts;
               const currentCr = aicteInputs[a._id]?.credits !== undefined ? aicteInputs[a._id].credits : defaultCr;
+              const isAiGenuine = (a.aiScore || 0) >= 70;
+              const isAiModerate = (a.aiScore || 0) >= 40 && (a.aiScore || 0) < 70;
+              const isAiRisk = a.aiScore !== null && a.aiScore !== undefined && a.aiScore < 40;
+
               return (
-                <motion.div key={a._id} className="ac-card" variants={fadeUp()}>
-                  <div className="btwn">
-                    <div className="row"><span className="tag ta">Pending</span><span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span></div>
+                <motion.div
+                  key={a._id}
+                  className="card"
+                  variants={fadeUp()}
+                  style={{
+                    background: "rgba(12, 16, 26, 0.85)",
+                    border: isAiRisk ? "1.5px solid rgba(239, 68, 68, 0.4)" : isAiGenuine ? "1.5px solid rgba(16, 185, 129, 0.3)" : "1px solid var(--border)",
+                    borderRadius: 14,
+                    padding: "1.25rem",
+                  }}
+                >
+                  <div className="btwn mb1">
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="tag ta">⏳ Pending Review</span>
+                      <span className="tag tp">{AICTE_CFG[a.type]?.label || a.type}</span>
+                      {a.college && (
+                        <span className="tag" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+                          🏛️ {a.college}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-m" style={{ fontSize: 12 }}>{a.date}</span>
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{a.title}</div>
-                  <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>
-                    By: {student?.name || "Unknown"} ({student?.college || "No College"}) · Organizer: {a.organizer}
-                  </div>
-                  <div className="row mt1" style={{ gap: 12, fontSize: 12, alignItems: "center" }}>
-                    <div className="row" style={{ gap: 4 }}>
-                      <span className="text-p fw7">Pts:</span>
-                      <input type="number" style={{ width: 45, background: "rgba(255,255,255,0.05)", color: "white", border: "1px solid var(--em-border)", borderRadius: 4, padding: "2px 4px", fontSize: 12 }} value={currentPts} onChange={e => setAicteInputs(prev => ({...prev, [a._id]: {...prev[a._id], pts: e.target.value}}))} />
+
+                  {/* Student & Activity Info */}
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: "1rem" }}>
+                    <div className="av" style={{ width: 44, height: 44, fontSize: 14, flexShrink: 0 }}>
+                      {student?.avatar || (student?.name ? student.name.slice(0, 2).toUpperCase() : "ST")}
                     </div>
-                    <div className="row" style={{ gap: 4 }}>
-                      <span className="text-g fw7">Cr:</span>
-                      <input type="number" style={{ width: 45, background: "rgba(255,255,255,0.05)", color: "white", border: "1px solid var(--em-border)", borderRadius: 4, padding: "2px 4px", fontSize: 12 }} value={currentCr} onChange={e => setAicteInputs(prev => ({...prev, [a._id]: {...prev[a._id], credits: e.target.value}}))} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: "#fff" }}>{a.title}</div>
+                      <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>
+                        Submitted by <strong style={{ color: "#fff" }}>{student?.name || "Student"}</strong> ({student?.email || "No email"})
+                      </div>
+                      <div style={{ display: "flex", gap: 12, fontSize: 11.5, color: "var(--text-muted)", marginTop: 4, flexWrap: "wrap" }}>
+                        <span>🏢 Organizer: <strong style={{ color: "#cbd5e1" }}>{a.organizer}</strong></span>
+                        {student?.collegeIdNumber && (
+                          <span style={{ color: "var(--em)" }}>🪪 ID / USN: <strong>{student.collegeIdNumber}</strong></span>
+                        )}
+                      </div>
                     </div>
-                    {a.certUrl && (
-                      a.certUrl.startsWith("data:") 
-                        ? <a href={a.certUrl} download={`cert-${a._id}.png`} style={{ color: "var(--em)", textDecoration: "underline" }}>Download certificate ⬇</a>
-                        : <a href={a.certUrl} target="_blank" rel="noreferrer" style={{ color: "var(--em)", textDecoration: "underline" }}>View certificate ↗</a>
-                    )}
                   </div>
-                  {a.aiScore !== null && a.aiScore !== undefined && (
-                    <div className="mt1 p1" style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.3)", borderRadius: 6, fontSize: 12 }}>
-                      <div className="row" style={{ gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, color: "var(--purple)" }}>🤖 AI Genuineness Score:</span>
-                        <span style={{ fontWeight: 700, color: a.aiScore >= 80 ? "var(--green)" : a.aiScore >= 50 ? "var(--yellow)" : "var(--red)" }}>
-                          {a.aiScore}%
+
+                  {/* Real-time AI Genuineness Auditor Panel */}
+                  <div
+                    style={{
+                      background: isAiRisk ? "rgba(239, 68, 68, 0.08)" : isAiGenuine ? "rgba(16, 185, 129, 0.08)" : "rgba(139, 92, 246, 0.08)",
+                      border: `1px solid ${isAiRisk ? "rgba(239, 68, 68, 0.3)" : isAiGenuine ? "rgba(16, 185, 129, 0.3)" : "rgba(139, 92, 246, 0.3)"}`,
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      marginBottom: "1rem",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14 }}>🤖</span>
+                        <strong style={{ color: "#fff" }}>AI Genuineness Assistant:</strong>
+                        <span
+                          className="tag"
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 11,
+                            background: isAiRisk ? "rgba(239,68,68,0.2)" : isAiGenuine ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)",
+                            color: isAiRisk ? "#f87171" : isAiGenuine ? "var(--em)" : "#fbbf24",
+                            border: `1px solid ${isAiRisk ? "#ef4444" : isAiGenuine ? "var(--em)" : "#f59e0b"}`,
+                          }}
+                        >
+                          {a.aiScore !== null && a.aiScore !== undefined
+                            ? `${a.aiScore}% • ${a.aiVerdict || (isAiGenuine ? "GENUINE" : isAiModerate ? "SUSPICIOUS" : "FLAGGED")}`
+                            : "Awaiting Live Audit"}
                         </span>
                       </div>
-                      <div style={{ color: "var(--text-secondary)", lineHeight: 1.4 }}>{a.aiFeedback}</div>
+
+                      <button
+                        type="button"
+                        className="btn btn-o btn-sm"
+                        onClick={() => handleAiVerify(a)}
+                        style={{ fontSize: 11, padding: "3px 10px", borderColor: "var(--purple)", color: "var(--purple)" }}
+                      >
+                        ⚡ Re-run AI Audit
+                      </button>
                     </div>
-                  )}
-                  <div className="row mt1" style={{ gap: 6 }}>
-                    <button className="btn btn-g btn-sm" onClick={() => approveAicte(a)}>Approve</button>
-                    <button className="btn btn-d btn-sm" onClick={() => rejectAicte(a)}>Reject</button>
-                    <button className="btn btn-o btn-sm" onClick={() => handleAiVerify(a)} style={{ borderColor: "var(--purple)", color: "var(--purple)" }}>🤖 AI Verify</button>
+
+                    <div style={{ color: "var(--text-secondary)", lineHeight: 1.45, marginBottom: a.aiDetails ? 6 : 0 }}>
+                      {a.aiFeedback || "Upload certificate document to enable automated OCR authenticity scanning."}
+                    </div>
+
+                    {a.aiDetails && (a.aiDetails.recipientName || a.aiDetails.issuingAuthority || a.aiDetails.eventTitle) && (
+                      <div style={{ display: "flex", gap: 14, fontSize: 11, color: "var(--text-muted)", marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap" }}>
+                        {a.aiDetails.recipientName && <span>Extracted Recipient: <strong style={{ color: "#fff" }}>{a.aiDetails.recipientName}</strong></span>}
+                        {a.aiDetails.issuingAuthority && <span>Issuing Authority: <strong style={{ color: "#fff" }}>{a.aiDetails.issuingAuthority}</strong></span>}
+                        {a.aiDetails.eventTitle && <span>Detected Topic: <strong style={{ color: "#fff" }}>{a.aiDetails.eventTitle}</strong></span>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Certificate Link & Points Assignment */}
+                  <div className="btwn" style={{ flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                    <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                      <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>Award Points:</span>
+                        <input
+                          type="number"
+                          style={{ width: 50, background: "rgba(255,255,255,0.06)", color: "white", border: "1px solid var(--em-border)", borderRadius: 6, padding: "4px 8px", fontSize: 12 }}
+                          value={currentPts}
+                          onChange={(e) => setAicteInputs(prev => ({ ...prev, [a._id]: { ...prev[a._id], pts: e.target.value } }))}
+                        />
+                      </div>
+                      <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>Bonus Credits:</span>
+                        <input
+                          type="number"
+                          style={{ width: 50, background: "rgba(255,255,255,0.06)", color: "white", border: "1px solid var(--em-border)", borderRadius: 6, padding: "4px 8px", fontSize: 12 }}
+                          value={currentCr}
+                          onChange={(e) => setAicteInputs(prev => ({ ...prev, [a._id]: { ...prev[a._id], credits: e.target.value } }))}
+                        />
+                      </div>
+
+                      {a.certUrl && (
+                        a.certUrl.startsWith("data:") 
+                          ? <a href={a.certUrl} download={`cert-${a._id}.png`} className="btn btn-o btn-sm" style={{ fontSize: 11, padding: "4px 10px" }}>📄 Download File ⬇</a>
+                          : <a href={a.certUrl} target="_blank" rel="noreferrer" className="btn btn-o btn-sm" style={{ fontSize: 11, padding: "4px 10px" }}>📄 View Certificate ↗</a>
+                      )}
+                    </div>
+
+                    {/* Decision Action Buttons */}
+                    <div className="row" style={{ gap: 8 }}>
+                      <button
+                        type="button"
+                        className="btn btn-g btn-sm"
+                        style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}
+                        onClick={() => approveAicte(a)}
+                      >
+                        ✓ Approve & Award
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-d btn-sm"
+                        style={{ display: "flex", alignItems: "center", gap: 6 }}
+                        onClick={() => rejectAicte(a)}
+                      >
+                        ✕ Reject
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               );
             })}
           </motion.div>
-        )
-      )}
+        )}
+      </div>
+    )}
 
       {tab === "users" && (
         allUsers.length === 0 ? <div className="empty">No registered users yet.</div> : (
@@ -4455,7 +4936,19 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
                 <div style={{ flex: 1 }}>
                   <div className="btwn">
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name}</div>
-                    <span className="tag tg">{u.credits} cr</span>
+                    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                      {u.role === "student" && (user?.role === "websiteAdmin" || user?.role === "super_admin" || (u.college && user?.college && u.college.toLowerCase().trim() === user.college.toLowerCase().trim())) && (
+                        <button
+                          type="button"
+                          className="btn btn-o btn-sm"
+                          style={{ fontSize: 11, padding: "2px 8px" }}
+                          onClick={() => setModal(<AdminIssueCertificateModal adminUser={user} initialStudent={u} users={users} close={() => setModal(null)} notify={notify} />)}
+                        >
+                          📜 Issue Cert
+                        </button>
+                      )}
+                      <span className="tag tg">{u.credits} cr</span>
+                    </div>
                   </div>
                   <div className="text-s" style={{ fontSize: 12 }}>{u.email}</div>
                   <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
@@ -5055,6 +5548,75 @@ export function EditProfileModal({ user, refreshUser, close, notify }) {
   );
 }
 
+// ─── ADMIN ISSUE CERTIFICATE MODAL ──────────────────────────────────────────
+export function AdminIssueCertificateModal({ adminUser, initialStudent, users, close, notify }) {
+  const [studentId, setStudentId] = useState(initialStudent?._id || "");
+  const [periodStart, setPeriodStart] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().split("T")[0];
+  });
+  const [periodEnd, setPeriodEnd] = useState(() => new Date().toISOString().split("T")[0]);
+  const [issuing, setIssuing] = useState(false);
+
+  // Filter students from admin's college
+  const collegeStudents = (users || []).filter(u => 
+    u.role === "student" && 
+    (adminUser?.role === "websiteAdmin" || adminUser?.role === "super_admin" || 
+      (u.college && adminUser?.college && u.college.toLowerCase().trim() === adminUser.college.toLowerCase().trim()))
+  );
+
+  const handleIssue = async () => {
+    if (!studentId) return notify("Please select a student", "error");
+    if (!periodStart || !periodEnd) return notify("Please select start and end dates", "error");
+    setIssuing(true);
+    try {
+      const res = await api.issueAicteCertificate(studentId, periodStart, periodEnd);
+      notify(res.message || "AICTE Accredited Certificate cryptographically anchored & issued! 📜", "success");
+      if (close) close();
+    } catch (e) {
+      notify(e.message || "Failed to issue certificate", "error");
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mo-t">Issue Official AICTE Accredited Certificate</div>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>
+        As Institution Administrator for <strong>{adminUser?.college || "your college"}</strong>, you can officially approve and cryptographically sign academic credentials on Polygon Amoy.
+      </p>
+      <div className="field">
+        <label>Select Student</label>
+        {initialStudent ? (
+          <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.05)", borderRadius: 6, fontWeight: 700, color: "#fff" }}>
+            {initialStudent.name} ({initialStudent.email})
+          </div>
+        ) : (
+          <select className="fi" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+            <option value="">-- Select a student --</option>
+            {collegeStudents.map(s => (
+              <option key={s._id} value={s._id}>{s.name} ({s.email})</option>
+            ))}
+          </select>
+        )}
+      </div>
+      <div className="field">
+        <label>Assessment Period Start</label>
+        <input type="date" className="fi" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Assessment Period End</label>
+        <input type="date" className="fi" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+      </div>
+      <button className="btn btn-p" onClick={handleIssue} disabled={issuing} style={{ width: "100%", marginTop: 12, fontWeight: 700 }}>
+        {issuing ? "Anchoring on Polygon Blockchain..." : "Sign & Issue Official Certificate 📜"}
+      </button>
+    </div>
+  );
+}
+
 // ─── SUBMIT AICTE MODAL ──────────────────────────────────────────────────────
 export function SubmitAicteModal({ user, close, notify, load }) {
   const [type, setType] = useState("workshop");
@@ -5063,22 +5625,42 @@ export function SubmitAicteModal({ user, close, notify, load }) {
   const [org, setOrg] = useState("");
   const [date, setDate] = useState("");
   const [cert, setCert] = useState("");
-  const [college, setCollege] = useState(user.college || "");
+  const [college, setCollege] = useState(user?.college || "");
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    if (!title || !org || !date || !college || (type === "others" && !customType)) { notify("Fill all required fields", "error"); return; }
+    const targetCollege = user?.college || college;
+    if (!title || !org || !date || !targetCollege || (type === "others" && !customType)) {
+      notify("Please fill in all required fields", "error");
+      return;
+    }
+    setSubmitting(true);
     try {
       const finalType = type === "others" ? customType : type;
-      await api.createAicte({ userId: user._id, type: finalType, title, organizer: org, date, certUrl: cert, college });
-      notify("Activity submitted for admin verification!");
-      close();
+      const res = await api.createAicte({ userId: user._id, type: finalType, title, organizer: org, date, certUrl: cert, college: targetCollege });
+      const aiVerdict = res?.aiVerdict ? ` [AI Scan: ${res.aiVerdict}]` : "";
+      notify(`Activity routed to ${targetCollege} Admin for review!${aiVerdict} 🎓`, "success");
+      if (close) close();
       load();
-    } catch (e) { notify(e.message, "error"); }
+    } catch (e) {
+      notify(e.message || "Failed to submit activity", "error");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div>
-      <div className="mo-t">Submit AICTE activity</div>
+      <div className="mo-t">Submit AICTE Activity for Institutional Review</div>
+
+      {/* AI Assistance Notice */}
+      <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(59, 130, 246, 0.08)", border: "1px solid rgba(59, 130, 246, 0.25)", fontSize: 12, color: "#93c5fd", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
+        <span style={{ fontSize: 18 }}>🤖</span>
+        <div>
+          <strong>Real-Time Gemini AI Audit:</strong> Uploaded certificates are scanned in real time for fraud detection, authenticity scoring, and issuing authority verification before admin approval.
+        </div>
+      </div>
+
       <div className="field">
         <label>Activity type</label>
         <select className="fi" value={type} onChange={(e) => setType(e.target.value)}>
@@ -5089,23 +5671,38 @@ export function SubmitAicteModal({ user, close, notify, load }) {
       {type === "others" && (
         <div className="field">
           <label>Specify Activity/Skill</label>
-          <input className="fi" placeholder="e.g. Custom Hackathon or Workshop" value={customType} onChange={(e) => setCustomType(e.target.value)} />
+          <input className="fi" placeholder="e.g. Custom Hackathon or Technical Workshop" value={customType} onChange={(e) => setCustomType(e.target.value)} />
         </div>
       )}
+
+      {/* Institutional Scoping */}
       <div className="field">
-        <label>Institution / College for Verification</label>
-        <CollegeAutocomplete value={college} onChange={(val) => setCollege(val)} placeholder="e.g. Global Academy" />
+        <label>Reviewing Institution Authority</label>
+        {user?.college ? (
+          <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.3)", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>🏛️</span>
+            <div>
+              <div style={{ fontWeight: 700, color: "#fff", fontSize: 13.5 }}>{user.college}</div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                Exclusively routed to the Administrator of <strong>{user.college}</strong>. Self-verification is strictly disabled.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <CollegeAutocomplete value={college} onChange={(val) => setCollege(val)} placeholder="e.g. Global Academy" />
+        )}
       </div>
+
       <div className="field">
-        <label>Title</label>
+        <label>Activity Title</label>
         <input className="fi" placeholder="e.g. Smart India Hackathon 2026" value={title} onChange={(e) => setTitle(e.target.value)} />
       </div>
       <div className="field">
-        <label>Organizer</label>
-        <input className="fi" placeholder="e.g. AICTE / VTU" value={org} onChange={(e) => setOrg(e.target.value)} />
+        <label>Organizer / Host</label>
+        <input className="fi" placeholder="e.g. AICTE / VTU / IEEE" value={org} onChange={(e) => setOrg(e.target.value)} />
       </div>
       <div className="field">
-        <label>Date</label>
+        <label>Date Conducted</label>
         <input className="fi" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
       <div className="field">
@@ -5114,13 +5711,13 @@ export function SubmitAicteModal({ user, close, notify, load }) {
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
           <label className="btn btn-o btn-sm" style={{ cursor: "pointer", display: "inline-block", margin: 0 }}>
             Upload from File Manager
-            <input type="file" style={{ display: "none" }} onChange={(e) => {
+            <input type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={(e) => {
               const file = e.target.files[0];
               if (!file) return;
               const reader = new FileReader();
               reader.onloadend = () => {
                 setCert(reader.result);
-                notify("Certificate file loaded! 📄");
+                notify("Certificate file attached! 📄");
               };
               reader.readAsDataURL(file);
             }} />
@@ -5132,7 +5729,10 @@ export function SubmitAicteModal({ user, close, notify, load }) {
         </div>
         <p className="hint" style={{ fontSize: 11, marginTop: 4, color: "var(--text-muted)" }}>* Drive: Paste share link above. File Manager: Click Upload from File Manager.</p>
       </div>
-      <button className="btn btn-p" onClick={handleSubmit}>Submit for verification</button>
+
+      <button className="btn btn-p" onClick={handleSubmit} disabled={submitting} style={{ width: "100%", marginTop: 8, fontWeight: 700 }}>
+        {submitting ? "Submitting & Scanning Certificate with Gemini AI..." : "Submit for Institution Admin Verification"}
+      </button>
     </div>
   );
 }

@@ -6,6 +6,9 @@ function urlBase64ToUint8Array(base64String) {
     throw new Error("Invalid VAPID public key string.");
   }
   let cleanKey = base64String.trim().replace(/^["']|["']$/g, "").replace(/[\r\n\s]+/g, "");
+  if (cleanKey.includes("VAPID_PRIVATE_KEY=")) {
+    cleanKey = cleanKey.split("VAPID_PRIVATE_KEY=")[0].trim();
+  }
   cleanKey = cleanKey.replace(/-/g, "+").replace(/_/g, "/");
   while (cleanKey.length % 4 !== 0) {
     cleanKey += "=";
