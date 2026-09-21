@@ -518,6 +518,21 @@ export default function App() {
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
 
+  // Ensure Service Worker auto-updates and clears stale cached bundles
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) reg.update().catch(() => {});
+      });
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!window._swReloaded) {
+          window._swReloaded = true;
+          window.location.reload();
+        }
+      });
+    }
+  }, []);
+
   // Check for welcome bonus on login
   useEffect(() => {
     if (user && user.role === "user" && user.welcomeShown === false) {
@@ -945,28 +960,25 @@ export default function App() {
               }}
             >
               <div style={{ fontSize: 44, marginBottom: 12 }}>⚠️</div>
-              <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginBottom: 8 }}>Duplicate Face Detected</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginBottom: 8 }}>Biometric Profile Already Enrolled</div>
               <p style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.6, marginBottom: 16 }}>
-                This face scan matches an existing account registered with:<br />
+                This face scan is already associated with an existing TimeBank profile:<br />
                 <span style={{ color: "#10b981", fontWeight: 700 }}>{dupeFaceModal.matchedEmail}</span>
               </p>
               <p style={{ fontSize: 12, color: "#64748b", marginBottom: 20 }}>
-                If this is your account, sign in with that email address. Creating duplicate accounts violates our terms of service.
+                To maintain platform integrity and trust, each user is permitted only one account. If you already have an account, please sign in.
               </p>
               <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn btn-o" onClick={() => setDupeFaceModal(null)} style={{ flex: 1, justifyContent: "center" }}>Cancel</button>
+                <button className="btn btn-o" onClick={() => setDupeFaceModal(null)} style={{ flex: 1, justifyContent: "center" }}>Dismiss</button>
                 <button
                   className="btn btn-p"
                   style={{ flex: 2, justifyContent: "center" }}
                   onClick={() => {
-                    const matched = dupeFaceModal.matchedEmail;
                     setDupeFaceModal(null);
-                    setAuthInitialEmail(matched);
                     nav("auth");
-                    notify(`Redirecting to sign in with ${matched}`, "info");
                   }}
                 >
-                  Sign In with That Account →
+                  Go to Sign In →
                 </button>
               </div>
             </motion.div>
@@ -2630,27 +2642,10 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                         {showFaceScan && (
                           <div style={{ marginTop: 10 }}>
                             <FaceVerification
-                              onCaptured={async (desc) => {
+                              onCaptured={(desc) => {
                                 setFaceDescriptor(desc);
                                 setShowFaceScan(false);
-                                try {
-                                  const checkRes = await api.checkFaceDuplicate(desc, le || "");
-                                  if (checkRes.duplicate) {
-                                    if (setDupeFaceModal) {
-                                      setDupeFaceModal({ matchedEmail: checkRes.matchedEmail });
-                                    }
-                                    if (notify) notify(`Face scan matches existing account (${checkRes.matchedEmail}). Please sign in with that account.`, "warning");
-                                  } else {
-                                    if (notify) notify("Face scan captured successfully! 👤✓");
-                                  }
-                                } catch (err) {
-                                  if (err.duplicateFace || err.code === "DUPLICATE_FACE" || err.matchedEmail) {
-                                    const matched = err.matchedEmail || err.data?.matchedEmail;
-                                    if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
-                                  } else {
-                                    if (notify) notify("Face scan captured successfully! 👤✓");
-                                  }
-                                }
+                                if (notify) notify("Face scan captured successfully! 👤✓");
                               }}
                             />
                           </div>
@@ -2725,27 +2720,10 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                     {showFaceScan && (
                       <div style={{ marginTop: 10 }}>
                         <FaceVerification
-                          onCaptured={async (desc) => {
+                          onCaptured={(desc) => {
                             setFaceDescriptor(desc);
                             setShowFaceScan(false);
-                            try {
-                              const checkRes = await api.checkFaceDuplicate(desc, le || "");
-                              if (checkRes.duplicate) {
-                                if (setDupeFaceModal) {
-                                  setDupeFaceModal({ matchedEmail: checkRes.matchedEmail });
-                                }
-                                if (notify) notify(`Face scan matches existing account (${checkRes.matchedEmail}). Please sign in with that account.`, "warning");
-                              } else {
-                                if (notify) notify("Face scan captured successfully! 👤✓");
-                              }
-                            } catch (err) {
-                              if (err.duplicateFace || err.code === "DUPLICATE_FACE" || err.matchedEmail) {
-                                const matched = err.matchedEmail || err.data?.matchedEmail;
-                                if (setDupeFaceModal) setDupeFaceModal({ matchedEmail: matched });
-                              } else {
-                                if (notify) notify("Face scan captured successfully! 👤✓");
-                              }
-                            }
+                            if (notify) notify("Face scan captured successfully! 👤✓");
                           }}
                         />
                       </div>

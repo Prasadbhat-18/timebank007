@@ -1,5 +1,5 @@
 // ─── public/sw.js — TimeBank Service Worker & Push Notification Handler ───────
-const CACHE_NAME = "timebank-pwa-v2";
+const CACHE_NAME = "timebank-pwa-v4";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -30,9 +30,8 @@ self.addEventListener("activate", (event) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 // Push Event: Handle native incoming Web Push alert

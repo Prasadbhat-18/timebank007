@@ -2,7 +2,8 @@
 import crypto from "crypto";
 import { User, Transaction, Booking } from "./models.js";
 
-export const FACE_MATCH_THRESHOLD = 0.58; // Euclidean distance <= 0.58 = same person (face-api.js verified)
+export const FACE_MATCH_THRESHOLD = 0.36; // Strict 1:N duplicate detection threshold (only same human face matches <= 0.36)
+export const FACE_LOGIN_VERIFY_THRESHOLD = 0.42; // 1:1 account owner verification during login
 const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank-fraud-hash-key";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────

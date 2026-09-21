@@ -608,19 +608,14 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                   Existing Account Detected
                 </div>
                 <p style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55, margin: '0 0 12px' }}>
-                  This face matches an existing TimeBank profile registered under:
+                  This face is already enrolled with an existing TimeBank profile:
                   <br />
                   <span style={{ color: '#38bdf8', fontWeight: 800, fontSize: 14 }}>
                     {duplicateMatch.matchedEmail}
                   </span>
-                  {duplicateMatch.matchedName && (
-                    <span style={{ color: '#94a3b8', display: 'block', fontSize: 12, marginTop: 2 }}>
-                      ({duplicateMatch.matchedName})
-                    </span>
-                  )}
                 </p>
                 <div style={{ fontSize: 12, color: '#fca5a5', marginBottom: 14, lineHeight: 1.4 }}>
-                  Multi-accounting is strictly prohibited on TimeBank. Please sign in to your original account.
+                  Each individual is permitted only one TimeBank profile. If you already have an account, please sign in.
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
@@ -648,11 +643,11 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                     }}
                     onClick={() => {
                       if (onRedirectToLogin) {
-                        onRedirectToLogin(duplicateMatch.matchedEmail);
+                        onRedirectToLogin();
                       }
                     }}
                   >
-                    Sign In with {duplicateMatch.matchedEmail} →
+                    Go to Sign In →
                   </button>
                 </div>
               </div>
