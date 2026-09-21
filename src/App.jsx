@@ -568,7 +568,13 @@ export default function App() {
     setTimeout(() => setNotifs((n) => n.filter((x) => x.id !== id)), 3500);
   }, []);
 
+  const [selectedChatId, setSelectedChatId] = useState(null);
   const nav = (pg) => { setPage(pg); setModal(null); };
+  const openChat = (chatId) => {
+    setSelectedChatId(chatId);
+    setPage("chat");
+    setModal(null);
+  };
 
   const getU = useCallback((id) => users.find((u) => u._id === id), [users]);
   const getSk = useCallback((id) => skills.find((s) => s._id === id), [skills]);
@@ -827,7 +833,7 @@ export default function App() {
   const pageProps = {
     user, wallet, setWallet, skills, users, notify, nav, getU, getSk,
     setModal: handleSetModal, refreshUser, connectWallet, doLogout,
-    loadSkills, setVerifyCertId,
+    loadSkills, setVerifyCertId, openChat, selectedChatId,
   };
 
   return (
@@ -3093,7 +3099,7 @@ function Dashboard({ user, wallet, notify, nav, connectWallet, setModal }) {
 }
 
 // ─── SERVICES ────────────────────────────────────────────────────────────────
-function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUser, loadSkills }) {
+function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUser, loadSkills, openChat }) {
   const [services, setServices] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -3152,6 +3158,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
         refreshUser={refreshUser}
         load={load}
         setModal={setModal}
+        openChat={openChat}
       />
     );
   };
@@ -3255,7 +3262,7 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
 }
 
 // ─── BOOKINGS────────────────────────────────────────────────────────────────
-function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setModal }) {
+function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setModal, openChat, nav }) {
   const [bookings, setBookings] = useState([]);
   const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -3335,10 +3342,31 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
                   </div>
                   {b.notes && <div className="text-m" style={{ fontSize: 12, marginTop: 4 }}>"{b.notes}"</div>}
                   {b.txHash && <a href={chain.txLink(b.txHash)} target="_blank" rel="noreferrer" className="chash" style={{ display: "inline-block", marginTop: 4, color: "var(--em)" }}>View on Polygonscan ↗</a>}
-                  <div className="row mt1" style={{ gap: 6 }}>
+                  <div className="row mt1" style={{ gap: 6, flexWrap: "wrap" }}>
                     {b.status === "pending" && isProvider && <><button className="btn btn-g btn-sm" onClick={() => confirm(b)}>Confirm</button><button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Decline</button></>}
                     {b.status === "confirmed" && isProvider && <button className="btn btn-g btn-sm" onClick={() => complete(b)}>Complete session</button>}
                     {b.status === "pending" && !isProvider && <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Cancel</button>}
+                    
+                    {b.status !== "cancelled" && (
+                      <button
+                        type="button"
+                        className="btn btn-o btn-sm"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 4, ...(b.status === "completed" ? { opacity: 0.75 } : { fontWeight: 600 }) }}
+                        onClick={async () => {
+                          const otherId = isProvider ? b.requesterId : b.providerId;
+                          try {
+                            const chat = await api.createChat([user._id, otherId], { bookingId: b._id, serviceId: b.serviceId });
+                            if (openChat) openChat(chat._id);
+                            else if (nav) nav("chat");
+                          } catch (e) {
+                            notify(e.message, "error");
+                          }
+                        }}
+                      >
+                        {b.status === "completed" ? "💬 View Chat (Closed)" : "💬 Chat Now"}
+                      </button>
+                    )}
+
                     {b.status === "completed" && (
                       <button
                         className="btn btn-o btn-sm"
@@ -4150,20 +4178,41 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
 }
 
 // ─── CHAT ────────────────────────────────────────────────────────────────────
-function ChatPage({ user, users, notify, setModal }) {
+function ChatPage({ user, users, notify, setModal, selectedChatId }) {
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [msg, setMsg] = useState("");
   const msgsEnd = useRef(null);
 
   const load = useCallback(() => {
-    api.fetchUserChats(user._id).then(setChats).catch(() => {});
-  }, [user]);
+    api.fetchUserChats(user._id).then((data) => {
+      setChats(data || []);
+      if (selectedChatId && data) {
+        const target = data.find((c) => c._id === selectedChatId);
+        if (target) setActiveChat(target);
+      }
+    }).catch(() => {});
+  }, [user._id, selectedChatId]);
+
   useEffect(load, [load]);
+
+  useEffect(() => {
+    if (selectedChatId && chats.length > 0) {
+      const match = chats.find((c) => c._id === selectedChatId);
+      if (match) setActiveChat(match);
+    } else if (!activeChat && chats.length > 0) {
+      setActiveChat(chats[0]);
+    }
+  }, [selectedChatId, chats]);
+
   useEffect(() => { msgsEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [activeChat]);
 
   const send = async () => {
     if (!msg.trim() || !activeChat) return;
+    if (activeChat.status === "closed") {
+      notify("This conversation is closed because the service session has completed.", "warning");
+      return;
+    }
     try {
       const updated = await api.sendMessage(activeChat._id, user._id, msg.trim());
       setActiveChat(updated);
@@ -4173,7 +4222,7 @@ function ChatPage({ user, users, notify, setModal }) {
   };
 
   const newChat = () => {
-    setModal(<NewChatModal user={user} users={users} load={load} setActiveChat={setActiveChat} notify={notify} />);
+    setModal(<NewChatModal user={user} users={users} close={() => setModal(null)} load={load} setActiveChat={setActiveChat} notify={notify} />);
   };
 
   const getOther = (chat) => {
@@ -4181,21 +4230,37 @@ function ChatPage({ user, users, notify, setModal }) {
     return users.find((u) => u._id === otherId);
   };
 
+  const isClosed = activeChat?.status === "closed";
+
   return (
     <div className="inner">
-      <div className="btwn mb2"><div className="ph" style={{ margin: 0 }}><h1>Messages</h1><p>Chat with other users</p></div><button className="btn btn-g" onClick={newChat}>+ New chat</button></div>
+      <div className="btwn mb2">
+        <div className="ph" style={{ margin: 0 }}>
+          <h1>Messages</h1>
+          <p>Active service sessions and conversations</p>
+        </div>
+        <button className="btn btn-g" onClick={newChat}>+ New chat</button>
+      </div>
       <div className="g2" style={{ gridTemplateColumns: "280px 1fr", alignItems: "start" }}>
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          {chats.length === 0 ? <div className="empty" style={{ padding: "2rem 1rem" }}>No conversations yet</div> : chats.map((c) => {
+          {chats.length === 0 ? (
+            <div className="empty" style={{ padding: "2rem 1rem" }}>No conversations yet</div>
+          ) : chats.map((c) => {
             const other = getOther(c);
             const last = c.messages[c.messages.length - 1];
             const isActive = activeChat?._id === c._id;
             return (
               <div key={c._id} style={{ padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid var(--border)", background: isActive ? "var(--em-bg)" : "transparent", transition: "background 0.15s" }}
                 onClick={() => setActiveChat(c)}>
-                <div className="row"><div className="av" style={{ width: 30, height: 30, fontSize: 10 }}>{other?.avatar || "?"}</div>
-                  <div style={{ overflow: "hidden" }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{other?.name || "User"}</div>
+                <div className="row">
+                  <div className="av" style={{ width: 30, height: 30, fontSize: 10 }}>{other?.avatar || "?"}</div>
+                  <div style={{ overflow: "hidden", flex: 1 }}>
+                    <div className="btwn" style={{ alignItems: "center" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{other?.name || "User"}</div>
+                      {c.status === "closed" && (
+                        <span className="tag tr" style={{ fontSize: 9, padding: "1px 5px", marginLeft: 4 }}>🔒 Closed</span>
+                      )}
+                    </div>
                     {last && <div className="text-m" style={{ fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{last.text}</div>}
                   </div>
                 </div>
@@ -4205,7 +4270,20 @@ function ChatPage({ user, users, notify, setModal }) {
         </div>
         {activeChat ? (
           <div className="chat-wrap">
-            <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid var(--border)", fontWeight: 700, fontSize: 14 }}>{getOther(activeChat)?.name || "Chat"}</div>
+            <div className="btwn" style={{ padding: "0.75rem 1rem", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{getOther(activeChat)?.name || "Chat"}</div>
+              {isClosed ? (
+                <span className="tag tr" style={{ fontSize: 11, padding: "2px 8px" }}>🔒 Session Closed</span>
+              ) : (
+                <span className="tag tg" style={{ fontSize: 11, padding: "2px 8px" }}>● Active Session</span>
+              )}
+            </div>
+            {isClosed && (
+              <div style={{ margin: "0.75rem 1rem 0", padding: "0.6rem 0.85rem", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.25)", borderRadius: 8, color: "#f87171", fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>🔒</span>
+                <span><strong>Service Session Completed:</strong> This booking conversation has concluded and is archived. New messages are disabled.</span>
+              </div>
+            )}
             <div className="chat-msgs">
               {activeChat.messages.map((m, i) => (
                 <div key={m._id || i} className={`bbl ${m.senderId === user._id ? "bbl-m" : "bbl-t"}`}>{m.text}</div>
@@ -4213,8 +4291,22 @@ function ChatPage({ user, users, notify, setModal }) {
               <div ref={msgsEnd} />
             </div>
             <div className="chat-inp">
-              <input value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Type a message..." onKeyDown={(e) => e.key === "Enter" && send()} />
-              <button className="btn btn-g btn-sm" onClick={send}>Send</button>
+              <input
+                disabled={isClosed}
+                value={isClosed ? "" : msg}
+                onChange={(e) => setMsg(e.target.value)}
+                placeholder={isClosed ? "This conversation has ended and is closed." : "Type a message..."}
+                onKeyDown={(e) => !isClosed && e.key === "Enter" && send()}
+                style={isClosed ? { opacity: 0.6, cursor: "not-allowed", background: "rgba(255,255,255,0.02)" } : {}}
+              />
+              <button
+                className="btn btn-g btn-sm"
+                disabled={isClosed}
+                onClick={send}
+                style={isClosed ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+              >
+                {isClosed ? "Closed" : "Send"}
+              </button>
             </div>
           </div>
         ) : (
@@ -4482,12 +4574,36 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
     } catch (e) { notify(e.message, "error"); }
   };
 
-  const handleRestrict = async (userId, isRestricted) => {
+  const handleToggleBlock = async (targetUser) => {
+    const isBlocked = !!targetUser.isBlocked;
+    const action = isBlocked ? "unblock" : "block";
+    if (!isBlocked && !confirm(`Are you sure you want to suspend and block ${targetUser.name} (${targetUser.email})? They will be immediately blocked from accessing the platform.`)) return;
     try {
-      await api.adminUpdateRestriction(prefix, userId, { action: isRestricted ? "unrestrict" : "restrict", days: isRestricted ? 0 : 365, reason: "Admin action" });
-      notify(`User ${isRestricted ? "unrestricted" : "restricted"}`);
+      await api.adminUpdateRestriction(prefix, targetUser._id, {
+        action,
+        reason: isBlocked ? "Account reactivated by admin" : "Suspended by admin for policy violation or malicious activity",
+      });
+      notify(isBlocked ? `Unblocked ${targetUser.name}` : `Blocked & suspended ${targetUser.name}`, isBlocked ? "ok" : "warning");
       if (refreshUser) refreshUser();
-    } catch (e) { notify(e.message, "error"); }
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  };
+
+  const handleToggleRestrict = async (targetUser) => {
+    const isRestricted = targetUser.restrictionUntil && new Date(targetUser.restrictionUntil) > new Date();
+    const action = isRestricted ? "unrestrict" : "restrict";
+    try {
+      await api.adminUpdateRestriction(prefix, targetUser._id, {
+        action,
+        days: isRestricted ? 0 : 5,
+        reason: isRestricted ? "Service restriction lifted" : "5-day temporary service restriction applied by admin",
+      });
+      notify(isRestricted ? `Lifted restriction for ${targetUser.name}` : `Restricted ${targetUser.name} for 5 days`);
+      if (refreshUser) refreshUser();
+    } catch (e) {
+      notify(e.message, "error");
+    }
   };
 
   const handleResolveFraud = async (id, action) => {
@@ -4930,37 +5046,85 @@ function Admin({ prefix, user, wallet, users, notify, refreshUser, connectWallet
       {tab === "users" && (
         allUsers.length === 0 ? <div className="empty">No registered users yet.</div> : (
           <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
-            {allUsers.map((u) => (
-              <motion.div key={u._id} className="bk-row" variants={fadeUp()}>
-                <div className="av" style={{ width: 34, height: 34, fontSize: 11 }}>{u.avatar}</div>
-                <div style={{ flex: 1 }}>
-                  <div className="btwn">
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{u.name}</div>
-                    <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                      {u.role === "student" && (user?.role === "websiteAdmin" || user?.role === "super_admin" || (u.college && user?.college && u.college.toLowerCase().trim() === user.college.toLowerCase().trim())) && (
-                        <button
-                          type="button"
-                          className="btn btn-o btn-sm"
-                          style={{ fontSize: 11, padding: "2px 8px" }}
-                          onClick={() => setModal(<AdminIssueCertificateModal adminUser={user} initialStudent={u} users={users} close={() => setModal(null)} notify={notify} />)}
-                        >
-                          📜 Issue Cert
-                        </button>
-                      )}
-                      <span className="tag tg">{u.credits} cr</span>
+            {allUsers.map((u) => {
+              const isRestricted = u.restrictionUntil && new Date(u.restrictionUntil) > new Date();
+              const isBlocked = !!u.isBlocked;
+              const canModerate = user?.role === "websiteAdmin" || user?.role === "super_admin" || (user?.role === "collegeAdmin" && u.college && user?.college && u.college.toLowerCase().trim() === user.college.toLowerCase().trim());
+
+              return (
+                <motion.div key={u._id} className="bk-row" variants={fadeUp()} style={{ borderLeft: isBlocked ? "3px solid #ef4444" : isRestricted ? "3px solid #f59e0b" : "3px solid transparent" }}>
+                  <div className="av" style={{ width: 34, height: 34, fontSize: 11 }}>{u.avatar}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="btwn">
+                      <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{u.name}</span>
+                        {isBlocked && (
+                          <span className="tag tr" style={{ fontSize: 10, padding: "1px 6px", background: "rgba(239, 68, 68, 0.2)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.4)" }}>
+                            🚫 Suspended
+                          </span>
+                        )}
+                        {isRestricted && !isBlocked && (
+                          <span className="tag ta" style={{ fontSize: 10, padding: "1px 6px", background: "rgba(245, 158, 11, 0.2)", color: "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.4)" }}>
+                            ⚠️ Restricted
+                          </span>
+                        )}
+                      </div>
+                      <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        {u.role === "student" && (user?.role === "websiteAdmin" || user?.role === "super_admin" || (u.college && user?.college && u.college.toLowerCase().trim() === user.college.toLowerCase().trim())) && (
+                          <button
+                            type="button"
+                            className="btn btn-o btn-sm"
+                            style={{ fontSize: 11, padding: "2px 8px" }}
+                            onClick={() => setModal(<AdminIssueCertificateModal adminUser={user} initialStudent={u} users={users} close={() => setModal(null)} notify={notify} />)}
+                          >
+                            📜 Issue Cert
+                          </button>
+                        )}
+
+                        {canModerate && (
+                          <button
+                            type="button"
+                            className="btn btn-o btn-sm"
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderColor: isRestricted ? "#10b981" : "rgba(245, 158, 11, 0.5)",
+                              color: isRestricted ? "#10b981" : "#f59e0b"
+                            }}
+                            onClick={() => handleToggleRestrict(u)}
+                            title={isRestricted ? "Lift service restriction" : "Temporarily restrict service creation (5 days)"}
+                          >
+                            {isRestricted ? "✓ Unrestrict" : "⚠️ Restrict"}
+                          </button>
+                        )}
+
+                        {canModerate && (
+                          <button
+                            type="button"
+                            className={`btn ${isBlocked ? "btn-g" : "btn-d"} btn-sm`}
+                            style={{ fontSize: 11, padding: "2px 8px" }}
+                            onClick={() => handleToggleBlock(u)}
+                            title={isBlocked ? "Reactivate user account" : "Suspend and block malicious account"}
+                          >
+                            {isBlocked ? "✓ Unblock" : "🚫 Block"}
+                          </button>
+                        )}
+
+                        <span className="tag tg">{u.credits} cr</span>
+                      </div>
                     </div>
+                    <div className="text-s" style={{ fontSize: 12 }}>{u.email}</div>
+                    <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
+                      <span>Earned: {u.earned}h</span>
+                      <span>Spent: {u.spent}h</span>
+                      <span>AICTE: {u.aictePoints} pts</span>
+                      <span>Rep: {u.rep || "—"}</span>
+                    </div>
+                    {u.wallet && <div className="chash mt1" style={{ fontSize: 10 }}>{u.wallet}</div>}
                   </div>
-                  <div className="text-s" style={{ fontSize: 12 }}>{u.email}</div>
-                  <div className="row mt1" style={{ gap: 12, fontSize: 12 }}>
-                    <span>Earned: {u.earned}h</span>
-                    <span>Spent: {u.spent}h</span>
-                    <span>AICTE: {u.aictePoints} pts</span>
-                    <span>Rep: {u.rep || "—"}</span>
-                  </div>
-                  {u.wallet && <div className="chash mt1" style={{ fontSize: 10 }}>{u.wallet}</div>}
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </motion.div>
         )
       )}
@@ -5234,27 +5398,72 @@ export function ReviewModal({ booking, refreshUser, notify, close }) {
 
 // ─── NEW CHAT MODAL ──────────────────────────────────────────────────────────
 export function NewChatModal({ user, users, close, load, setActiveChat, notify }) {
-  const others = users.filter((u) => u._id !== user._id && u.role !== "admin");
+  const [activeBookings, setActiveBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.fetchUserBookings(user._id)
+      .then((bList) => {
+        const relevant = (bList || []).filter((b) => b.status === "pending" || b.status === "confirmed");
+        setActiveBookings(relevant);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [user._id]);
+
+  const map = new Map();
+  activeBookings.forEach((b) => {
+    const otherId = b.requesterId === user._id ? b.providerId : b.requesterId;
+    const otherUser = users.find((u) => u._id === otherId);
+    if (otherUser && !map.has(otherId)) {
+      map.set(otherId, { user: otherUser, booking: b });
+    }
+  });
+  const counterparties = Array.from(map.values());
+
   return (
     <div>
-      <div className="mo-t">Start a conversation</div>
-      {others.length === 0 ? <div className="empty">No other users yet.</div> : others.map((u) => (
-        <div key={u._id} className="row mb1" style={{ cursor: "pointer", padding: ".75rem", borderRadius: 8, border: "1px solid var(--border)" }}
-          onClick={async () => {
-            try {
-              const chat = await api.createChat([user._id, u._id]);
-              close();
-              load();
-              setActiveChat(chat);
-            } catch (e) { notify(e.message, "error"); }
-          }}>
-          <div className="av" style={{ width: 32, height: 32, fontSize: 11 }}>{u.avatar}</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{u.name}</div>
-            <div className="text-m" style={{ fontSize: 12 }}>{u.bio}</div>
-          </div>
+      <div className="mo-t">Service Conversations</div>
+      <p className="text-s" style={{ fontSize: 12, marginBottom: 14, color: "var(--text-m)" }}>
+        Chat is enabled with providers and clients for active or upcoming bookings.
+      </p>
+      {loading ? (
+        <div className="empty" style={{ padding: "1.5rem" }}>Loading active bookings...</div>
+      ) : counterparties.length === 0 ? (
+        <div className="empty" style={{ padding: "1.5rem", textAlign: "center" }}>
+          <p style={{ margin: 0, fontWeight: 600 }}>No active service sessions.</p>
+          <p className="text-m" style={{ fontSize: 12, marginTop: 4 }}>
+            Direct messaging is linked to bookings. Request a service or respond to an incoming request to start chatting with your client or provider.
+          </p>
         </div>
-      ))}
+      ) : (
+        counterparties.map(({ user: u, booking: b }) => (
+          <div
+            key={u._id}
+            className="row mb1"
+            style={{ cursor: "pointer", padding: ".75rem", borderRadius: 8, border: "1px solid var(--border)", alignItems: "center" }}
+            onClick={async () => {
+              try {
+                const chat = await api.createChat([user._id, u._id], { bookingId: b._id, serviceId: b.serviceId });
+                if (close) close();
+                if (load) load();
+                if (setActiveChat) setActiveChat(chat);
+              } catch (e) {
+                notify(e.message, "error");
+              }
+            }}
+          >
+            <div className="av" style={{ width: 34, height: 34, fontSize: 11 }}>{u.avatar}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{u.name}</div>
+              <div className="text-m" style={{ fontSize: 12 }}>
+                Booking #{b._id.slice(-6)} · {b.hours}h · <span style={{ textTransform: "capitalize" }}>{b.status}</span>
+              </div>
+            </div>
+            <span className="tag tb" style={{ fontSize: 11 }}>💬 Chat</span>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -5918,7 +6127,7 @@ export function OfferSkillModal({ user, skills, close, notify, load, loadSkills 
 }
 
 // ─── SERVICE DETAIL MODAL ────────────────────────────────────────────────────
-export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser, load, setModal }) {
+export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, nav, refreshUser, load, setModal, openChat }) {
   const [dt, setDt] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -5985,7 +6194,29 @@ export function ServiceDetailModal({ user, svc, prov, sk, own, close, notify, na
             <textarea className="fi" rows={2} placeholder="What do you need help with?" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ resize: "vertical" }} />
           </div>
           <p className="text-m" style={{ fontSize: 12, marginBottom: 10 }}>Cost: {svc.hours} credit{svc.hours > 1 ? "s" : ""} (you have {user.credits})</p>
-          <button className="btn btn-p" onClick={handleBooking}>Confirm booking</button>
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button className="btn btn-p" onClick={handleBooking} style={{ flex: 1, fontWeight: 700 }}>Confirm booking</button>
+            <button
+              type="button"
+              className="btn btn-o"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}
+              onClick={async () => {
+                try {
+                  const chat = await api.createChat([user._id, svc.providerId], { serviceId: svc._id });
+                  if (close) close();
+                  if (openChat) {
+                    openChat(chat._id);
+                  } else if (nav) {
+                    nav("chat");
+                  }
+                } catch (e) {
+                  notify(e.message, "error");
+                }
+              }}
+            >
+              💬 Chat Now
+            </button>
+          </div>
         </>
       ) : <p className="text-a" style={{ fontSize: 13, marginTop: 8 }}>This is your own listing.</p>}
       

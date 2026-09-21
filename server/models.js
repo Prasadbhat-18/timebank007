@@ -275,6 +275,9 @@ const messageSubSchema = new Schema({
 
 const chatSchema = new Schema({
   participants: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  bookingId:    { type: Schema.Types.ObjectId, ref: "Booking", default: null },
+  serviceId:    { type: Schema.Types.ObjectId, ref: "Service", default: null },
+  status:       { type: String, enum: ["active", "closed"], default: "active" },
   messages:     [messageSubSchema],
 }, { timestamps: true });
 

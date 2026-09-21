@@ -65,9 +65,43 @@ async function getFallbackTransporter() {
 }
 
 /**
+ * Helper to identify synthetic, test, or invalid email addresses
+ * that must never be dispatched to real SMTP to prevent mail delivery subsystem bounces.
+ */
+export function isTestOrDummyEmail(email) {
+  if (!email || typeof email !== "string") return true;
+  const clean = email.trim().toLowerCase();
+  const dummyDomains = [
+    "example.com", "example.org", "example.net",
+    "test.com", "dummy.com", "sample.com", "invalid", "localhost"
+  ];
+  const parts = clean.split("@");
+  if (parts.length !== 2) return true;
+  const domain = parts[1];
+  if (dummyDomains.includes(domain) || domain.endsWith(".example.com") || domain.endsWith(".test")) {
+    return true;
+  }
+  // Check for test/dummy naming patterns
+  if (/^(test_|dummy_|fake_|rejected_student_|unique_student_|student_\d+@nitk\.edu\.in)/i.test(clean)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Low-level email dispatcher using primary SMTP (Gmail) with Ethereal fallback
  */
-async function dispatchEmail({ to, subject, text, html }) {
+export async function dispatchEmail({ to, subject, text, html }) {
+  if (isTestOrDummyEmail(to)) {
+    console.log(`\n🚫 [EMAIL SUPPRESSED] Prevented SMTP transmission to synthetic/test address: ${to} (Subject: "${subject}")\n`);
+    return {
+      success: true,
+      deliveryType: "suppressed_test",
+      messageId: "mock-" + Date.now(),
+      previewUrl: null,
+    };
+  }
+
   let fromAddress = process.env.SMTP_FROM || `"TimeBank" <no-reply@timebank.app>`;
   if (process.env.SMTP_USER && process.env.SMTP_USER.includes("@gmail.com")) {
     fromAddress = `"TimeBank Verification" <${process.env.SMTP_USER}>`;
@@ -215,6 +249,10 @@ If you did not request this verification code, you can safely ignore this email.
  * Dispatches a real-time email to a student when their college admin approves or rejects their ID card
  */
 export async function sendStudentApprovalDecisionEmail({ to, studentName = "Student", collegeName = "Your Institution", decision, note = "" }) {
+  if (isTestOrDummyEmail(to)) {
+    console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed student approval email for test/dummy address: ${to}\n`);
+    return { success: true, deliveryType: "suppressed_test" };
+  }
   const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const isApproved = decision === "approved";
 
@@ -345,6 +383,10 @@ Visit TimeBank: ${clientUrl}/#auth
  * Dispatches an email to the college administrator when a new student uploads their ID card
  */
 export async function sendCollegeAdminPendingStudentEmail({ to, adminName = "Administrator", studentName, studentEmail, collegeName, collegeIdNumber }) {
+  if (isTestOrDummyEmail(studentEmail) || isTestOrDummyEmail(to)) {
+    console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed pending student email for synthetic/test student: ${studentEmail}\n`);
+    return { success: true, deliveryType: "suppressed_test" };
+  }
   const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const subject = `🎓 New Student Verification Request: ${studentName} - TimeBank`;
 
@@ -430,6 +472,10 @@ ${clientUrl}/#college-admin
  * Dispatches an alert email to college admin when a student submits an AICTE activity for verification
  */
 export async function sendCollegeAdminPendingAicteEmail({ to, adminName = "Administrator", studentName, studentEmail, collegeName, collegeIdNumber, activityType, activityTitle, organizer, aiScore, aiFeedback }) {
+  if (isTestOrDummyEmail(studentEmail) || isTestOrDummyEmail(to)) {
+    console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed pending AICTE email for synthetic/test student: ${studentEmail}\n`);
+    return { success: true, deliveryType: "suppressed_test" };
+  }
   const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const subject = `🎓 New AICTE Activity Claim: ${studentName} (${activityTitle}) - TimeBank`;
 
@@ -537,6 +583,10 @@ ${clientUrl}/#college-admin
  * Dispatches an email to the student when their AICTE activity is approved or rejected
  */
 export async function sendStudentAicteDecisionEmail({ to, studentName, activityTitle, decision, pts = 0, credits = 0, collegeName, adminFeedback = "", txHash = "" }) {
+  if (isTestOrDummyEmail(to)) {
+    console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed AICTE decision email for test/dummy student: ${to}\n`);
+    return { success: true, deliveryType: "suppressed_test" };
+  }
   const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
   const isApproved = decision === "approved";
   const subject = isApproved 

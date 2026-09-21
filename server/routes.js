@@ -66,7 +66,7 @@ export function isSameCollege(c1, c2) {
   return false;
 }
 
-export const requireAuth = (req, res, next) => {
+export const requireAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "No token provided" });
@@ -75,6 +75,14 @@ export const requireAuth = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded; // { id, role, college, collegeId }
+    
+    // Immediate gate: blocked users are prevented from making authenticated API calls
+    if (decoded.id) {
+      const u = await User.findById(decoded.id).select("isBlocked").lean();
+      if (u && u.isBlocked) {
+        return res.status(403).json({ error: "Your account has been suspended by the platform administrator." });
+      }
+    }
     next();
   } catch (err) {
     return res.status(401).json({ error: "Invalid or expired token" });
@@ -2807,6 +2815,15 @@ r.put("/bookings/:id", async (req, res) => {
         });
       }
       booking.escrowHeld = false;
+      await Chat.updateMany(
+        {
+          $or: [
+            { bookingId: booking._id },
+            { participants: { $all: [booking.providerId, booking.requesterId] }, serviceId: booking.serviceId }
+          ]
+        },
+        { $set: { status: "closed" } }
+      );
     }
 
     Object.assign(booking, req.body);
@@ -2909,6 +2926,17 @@ async function completeBookingInternal(booking, req, res) {
     booking.blockNumber = finalBlockNumber;
     booking.escrowHeld = false;
     await booking.save();
+
+    // Automatically close associated chat(s) once the service booking is completed
+    await Chat.updateMany(
+      {
+        $or: [
+          { bookingId: booking._id },
+          { participants: { $all: [booking.providerId, booking.requesterId] }, serviceId: booking.serviceId }
+        ]
+      },
+      { $set: { status: "closed" } }
+    );
 
     if (requester && provider) {
       // Credits were already deducted from requester during escrow
@@ -4264,39 +4292,119 @@ r.post("/aicte/:id/reject", requireAuth, requireRole(["websiteAdmin", "collegeAd
 });
 
 // ─── CHATS ───────────────────────────────────────────────────────────────────
-r.get("/chats/user/:userId", async (req, res) => {
-  try { res.json(await Chat.find({ participants: req.params.userId }).sort({ updatedAt: -1 })); }
+r.get("/chats/user/:userId", requireAuth, async (req, res) => {
+  try {
+    const chats = await Chat.find({ participants: req.params.userId }).sort({ updatedAt: -1 });
+    // Check and sync status for any booking-linked chats
+    for (const chat of chats) {
+      if (chat.bookingId && chat.status !== "closed") {
+        const b = await Booking.findById(chat.bookingId);
+        if (b && (b.status === "completed" || b.status === "cancelled")) {
+          chat.status = "closed";
+          await chat.save();
+        }
+      }
+    }
+    res.json(chats);
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/chats", async (req, res) => {
+r.post("/chats", requireAuth, async (req, res) => {
   try {
-    const { participants } = req.body;
-    // Check if chat already exists between these two
-    let chat = await Chat.findOne({
-      participants: { $all: participants, $size: participants.length },
+    const { participants, bookingId, serviceId } = req.body;
+    if (!participants || !Array.isArray(participants) || participants.length < 2) {
+      return res.status(400).json({ error: "Participants required" });
+    }
+
+    // Look for existing chat matching participants and booking/service
+    let chat = null;
+    if (bookingId) {
+      chat = await Chat.findOne({
+        bookingId,
+        participants: { $all: participants, $size: participants.length },
+      });
+    }
+
+    if (!chat && serviceId) {
+      chat = await Chat.findOne({
+        serviceId,
+        participants: { $all: participants, $size: participants.length },
+      });
+    }
+
+    if (!chat) {
+      chat = await Chat.findOne({
+        participants: { $all: participants, $size: participants.length },
+      });
+    }
+
+    if (chat) {
+      // Sync status if linked booking finished
+      if (chat.bookingId) {
+        const b = await Booking.findById(chat.bookingId);
+        if (b && (b.status === "completed" || b.status === "cancelled")) {
+          chat.status = "closed";
+          await chat.save();
+        }
+      }
+      return res.json(chat);
+    }
+
+    let initialStatus = "active";
+    if (bookingId) {
+      const b = await Booking.findById(bookingId);
+      if (b && (b.status === "completed" || b.status === "cancelled")) {
+        initialStatus = "closed";
+      }
+    }
+
+    chat = await Chat.create({
+      participants,
+      bookingId: bookingId || null,
+      serviceId: serviceId || null,
+      status: initialStatus,
+      messages: []
     });
-    if (chat) return res.json(chat);
-    chat = await Chat.create({ participants, messages: [] });
     res.status(201).json(chat);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post("/chats/:id/message", async (req, res) => {
+r.post("/chats/:id/message", requireAuth, async (req, res) => {
   try {
     const chat = await Chat.findById(req.params.id);
     if (!chat) return res.status(404).json({ error: "Chat not found" });
-    chat.messages.push(req.body);
+
+    // Enforce closed chat gate: completed bookings cannot receive further messages
+    if (chat.status === "closed") {
+      return res.status(403).json({ error: "This conversation is closed because the service booking has been completed." });
+    }
+
+    if (chat.bookingId) {
+      const b = await Booking.findById(chat.bookingId);
+      if (b && (b.status === "completed" || b.status === "cancelled")) {
+        chat.status = "closed";
+        await chat.save();
+        return res.status(403).json({ error: "This conversation is closed because the service booking has been completed." });
+      }
+    }
+
+    const senderId = req.user.id || req.body.senderId;
+    chat.messages.push({
+      senderId,
+      text: req.body.text,
+      readAt: null
+    });
     await chat.save();
 
     // Notify the other participant
-    const otherParticipant = chat.participants.find(p => p.toString() !== req.body.senderId);
+    const otherParticipant = chat.participants.find(p => p.toString() !== String(senderId));
     if (otherParticipant) {
-      const sender = await User.findById(req.body.senderId);
+      const sender = await User.findById(senderId);
       await createNotification(otherParticipant, "chat",
         `New Message from ${sender?.name || "Someone"} 💬`,
         req.body.text.length > 60 ? req.body.text.slice(0, 60) + "..." : req.body.text,
-        { chatId: chat._id, senderId: req.body.senderId }
+        { chatId: chat._id, senderId }
       );
     }
 
@@ -4305,14 +4413,14 @@ r.post("/chats/:id/message", async (req, res) => {
 });
 
 // Mark messages as read
-r.post("/chats/:id/read", async (req, res) => {
+r.post("/chats/:id/read", requireAuth, async (req, res) => {
   try {
     const { userId } = req.body;
     const chat = await Chat.findById(req.params.id);
     if (!chat) return res.status(404).json({ error: "Chat not found" });
 
     chat.messages.forEach(m => {
-      if (m.senderId.toString() !== userId && !m.readAt) {
+      if (m.senderId.toString() !== String(userId) && !m.readAt) {
         m.readAt = new Date();
       }
     });
@@ -4428,18 +4536,18 @@ r.get("/website-admin/stats", requireAuth, requireRole(["websiteAdmin"]), async 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.put("/website-admin/users/:id/restriction", requireAuth, requireRole(["websiteAdmin"]), async (req, res) => {
+r.put("/website-admin/users/:id/restriction", requireAuth, requireRole(["websiteAdmin", "super_admin"]), async (req, res) => {
   try {
     const { action, days, reason } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    if (action === "lift") {
+    if (action === "lift" || action === "unrestrict") {
       user.restrictionUntil = null;
       user.restrictionReason = "";
       user.freeloaderWarned = false;
       await createNotification(user._id, "restriction", "Restriction Lifted ✅", "An admin has lifted your service restriction.", {});
-    } else if (action === "apply") {
+    } else if (action === "apply" || action === "restrict") {
       const restrictDays = days || 5;
       user.restrictionUntil = new Date(Date.now() + restrictDays * 24 * 60 * 60 * 1000);
       user.restrictionReason = reason || "Admin-applied restriction";
@@ -4447,10 +4555,10 @@ r.put("/website-admin/users/:id/restriction", requireAuth, requireRole(["website
     } else if (action === "block") {
       user.isBlocked = true;
       await Service.deleteMany({ providerId: user._id });
-      await createNotification(user._id, "restriction", "Account Suspended 🚫", `Your account has been suspended by an admin. Reason: ${reason || "Frauds or harmful contents violation"}.`, {});
+      await createNotification(user._id, "restriction", "Account Suspended 🚫", `Your account has been suspended by a platform administrator. Reason: ${reason || "Malicious activities or policy violation"}.`, {});
     } else if (action === "unblock") {
       user.isBlocked = false;
-      await createNotification(user._id, "restriction", "Account Reactivated ✅", "An admin has reactivated your account.", {});
+      await createNotification(user._id, "restriction", "Account Reactivated ✅", "A platform administrator has reactivated your account.", {});
     }
 
     await user.save();
@@ -4521,12 +4629,12 @@ r.put("/college-admin/users/:id/restriction", requireAuth, requireRole(["college
       return res.status(403).json({ error: "Cannot modify a user outside your college" });
     }
 
-    if (action === "lift") {
+    if (action === "lift" || action === "unrestrict") {
       user.restrictionUntil = null;
       user.restrictionReason = "";
       user.freeloaderWarned = false;
       await createNotification(user._id, "restriction", "Restriction Lifted ✅", "Your college admin has lifted your service restriction.", {});
-    } else if (action === "apply") {
+    } else if (action === "apply" || action === "restrict") {
       const restrictDays = days || 5;
       user.restrictionUntil = new Date(Date.now() + restrictDays * 24 * 60 * 60 * 1000);
       user.restrictionReason = reason || "College Admin applied restriction";

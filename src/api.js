@@ -226,8 +226,8 @@ export const markAllNotificationsRead = (userId) =>
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
 export const fetchUserChats = (userId) => req(`/chats/user/${userId}`);
-export const createChat = (participants) =>
-  req("/chats", { method: "POST", body: JSON.stringify({ participants }) });
+export const createChat = (participants, meta = {}) =>
+  req("/chats", { method: "POST", body: JSON.stringify({ participants, ...meta }) });
 export const sendMessage = (chatId, senderId, text) =>
   req(`/chats/${chatId}/message`, { method: "POST", body: JSON.stringify({ senderId, text }) });
 export const markChatRead = (chatId, userId) =>
