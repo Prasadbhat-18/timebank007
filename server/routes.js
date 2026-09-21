@@ -620,6 +620,7 @@ r.post("/auth/login", async (req, res) => {
 
     // Biometric face verification for login
     let faceMatch = null;
+    let crossAccountFlag = null;
     if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
       if (user.faceDescriptor && user.faceDescriptor.length === 128) {
         // 1:1 Account Owner Check: Verify face against this user's enrolled biometric profile
@@ -641,9 +642,12 @@ r.post("/auth/login", async (req, res) => {
           if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
           const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
           if (otherDist <= FACE_MATCH_THRESHOLD) {
+            crossAccountFlag = { matchedEmail: candidate.email };
             return res.status(409).json({
               code: "DUPLICATE_FACE",
               duplicateFace: true,
+              matchedEmail: candidate.email,
+              crossAccountFlag,
               error: "This biometric face is already enrolled on another account. Multi-accounting is prohibited.",
             });
           }
@@ -852,6 +856,7 @@ r.post("/auth/verify-otp", async (req, res) => {
       }
 
       // Biometric face verification for OTP login
+      let crossAccountFlag = null;
       if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
         if (user.faceDescriptor && user.faceDescriptor.length === 128) {
           // 1:1 Account Owner Check: Verify face against this user's enrolled biometric profile
@@ -872,9 +877,12 @@ r.post("/auth/verify-otp", async (req, res) => {
             if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
             const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
             if (otherDist <= FACE_MATCH_THRESHOLD) {
+              crossAccountFlag = { matchedEmail: candidate.email };
               return res.status(409).json({
                 code: "DUPLICATE_FACE",
                 duplicateFace: true,
+                matchedEmail: candidate.email,
+                crossAccountFlag,
                 error: "This biometric face is already enrolled on another account. Multi-accounting is prohibited.",
               });
             }
