@@ -2,8 +2,8 @@
 import crypto from "crypto";
 import { User, Transaction, Booking } from "./models.js";
 
-export const FACE_MATCH_THRESHOLD = 0.36; // Strict 1:N duplicate detection threshold (only same human face matches <= 0.36)
-export const FACE_LOGIN_VERIFY_THRESHOLD = 0.42; // 1:1 account owner verification during login
+export const FACE_MATCH_THRESHOLD = 0.45; // Strict 1:N duplicate detection threshold (dist <= 0.45 = duplicate)
+export const FACE_LOGIN_VERIFY_THRESHOLD = 0.55; // 1:1 account owner verification during login (dist <= 0.55 = match owner)
 const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank-fraud-hash-key";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -12,6 +12,18 @@ export function euclideanDistance(a, b) {
   let sum = 0;
   for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
   return Math.sqrt(sum);
+}
+
+export function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0, mA = 0, mB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    mA += a[i] * a[i];
+    mB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(mA) * Math.sqrt(mB);
+  return denom === 0 ? 0 : dot / denom;
 }
 
 export function hashIdentifier(value) {

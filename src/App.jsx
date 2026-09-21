@@ -974,11 +974,13 @@ export default function App() {
                   className="btn btn-p"
                   style={{ flex: 2, justifyContent: "center" }}
                   onClick={() => {
+                    const matched = dupeFaceModal.matchedEmail;
                     setDupeFaceModal(null);
+                    setAuthInitialEmail(matched);
                     nav("auth");
                   }}
                 >
-                  Go to Sign In →
+                  Sign In with {dupeFaceModal.matchedEmail} →
                 </button>
               </div>
             </motion.div>
