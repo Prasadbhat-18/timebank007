@@ -643,11 +643,11 @@ export default function RegistrationWizard({ role = 'student', onComplete, onCan
                     }}
                     onClick={() => {
                       if (onRedirectToLogin) {
-                        onRedirectToLogin();
+                        onRedirectToLogin(duplicateMatch.matchedEmail);
                       }
                     }}
                   >
-                    Go to Sign In →
+                    Sign In to Primary Account →
                   </button>
                 </div>
               </div>

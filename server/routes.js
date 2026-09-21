@@ -963,16 +963,35 @@ r.post("/auth/check-face", async (req, res) => {
 
     // Biometric match threshold (distance <= FACE_MATCH_THRESHOLD = 0.36)
     if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
-      // Mask email for privacy - do not leak raw private email or name
-      const maskedEmail = bestMatch.email.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) => {
-        return first + "*".repeat(Math.max(1, middle.length - 1)) + middle.slice(-1) + domain;
-      });
+      // Flag existing user profile & log fraud review for multi-accounting attempt
+      try {
+        if (!bestMatch.flaggedReasons) bestMatch.flaggedReasons = [];
+        if (!bestMatch.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+          bestMatch.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+        }
+        bestMatch.flagged = true;
+        bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 80);
+        await bestMatch.save();
+
+        await FraudReview.create({
+          type: "user",
+          targetId: bestMatch._id,
+          userId: bestMatch._id,
+          riskScore: 80,
+          reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+          status: "pending",
+          note: `Real-time biometric scan during signup matched existing primary account ${bestMatch.email} (distance: ${bestDistance.toFixed(3)}). New attempt email: ${cleanEmail || "unspecified"}.`,
+        });
+      } catch (err) {
+        console.error("FraudReview log error:", err.message);
+      }
 
       return res.json({
         duplicate: true,
-        matchedEmail: maskedEmail,
+        matchedEmail: bestMatch.email,
+        primaryEmail: bestMatch.email,
         distance: bestDistance,
-        message: `This face matches an existing TimeBank profile (${maskedEmail}). Multi-accounting is strictly prohibited.`,
+        message: `This face matches an existing TimeBank profile (${bestMatch.email}). Multi-accounting is strictly prohibited.`,
       });
     }
 
@@ -1123,16 +1142,38 @@ r.post("/auth/register/student", async (req, res) => {
           matchedCandidate = await User.findOne({ email: fraudCheck.matchedEmail });
         }
 
+        if (matchedCandidate) {
+          try {
+            if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
+            if (!matchedCandidate.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+              matchedCandidate.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+            }
+            matchedCandidate.flagged = true;
+            matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 80);
+            await matchedCandidate.save();
+
+            await FraudReview.create({
+              type: "user",
+              targetId: matchedCandidate._id,
+              userId: matchedCandidate._id,
+              riskScore: 80,
+              reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+              status: "pending",
+              note: `Student signup attempt under ${cleanEmail} matched existing primary account ${matchedCandidate.email} (distance: ${fraudCheck.matchDistance?.toFixed(3)}).`,
+            });
+          } catch (err) {
+            console.error("FraudReview error:", err.message);
+          }
+        }
+
         const rawEmail = fraudCheck.matchedEmail || matchedCandidate?.email || "";
-        const masked = rawEmail.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) => {
-          return first + "*".repeat(Math.max(1, middle.length - 1)) + middle.slice(-1) + domain;
-        });
 
         return res.status(409).json({
-          error: `This face scan is already enrolled on an existing registered account (${masked}). Multi-accounting is not allowed.`,
+          error: `This face scan is already enrolled on an existing registered account (${rawEmail}). Multi-accounting is not allowed.`,
           code: "DUPLICATE_FACE",
           duplicateFace: true,
-          matchedEmail: masked,
+          matchedEmail: rawEmail,
+          primaryEmail: rawEmail,
           reasons: fraudCheck.reasons,
         });
       }
@@ -1575,16 +1616,38 @@ r.post("/auth/register/general", async (req, res) => {
           matchedCandidate = await User.findOne({ email: fraudCheck.matchedEmail });
         }
 
+        if (matchedCandidate) {
+          try {
+            if (!matchedCandidate.flaggedReasons) matchedCandidate.flaggedReasons = [];
+            if (!matchedCandidate.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+              matchedCandidate.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+            }
+            matchedCandidate.flagged = true;
+            matchedCandidate.riskScore = Math.max(matchedCandidate.riskScore || 0, 80);
+            await matchedCandidate.save();
+
+            await FraudReview.create({
+              type: "user",
+              targetId: matchedCandidate._id,
+              userId: matchedCandidate._id,
+              riskScore: 80,
+              reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+              status: "pending",
+              note: `General user signup attempt under ${cleanEmail} matched existing primary account ${matchedCandidate.email} (distance: ${fraudCheck.matchDistance?.toFixed(3)}).`,
+            });
+          } catch (err) {
+            console.error("FraudReview error:", err.message);
+          }
+        }
+
         const rawEmail = fraudCheck.matchedEmail || matchedCandidate?.email || "";
-        const masked = rawEmail.replace(/^(.)(.*)(@.*)$/, (_, first, middle, domain) => {
-          return first + "*".repeat(Math.max(1, middle.length - 1)) + middle.slice(-1) + domain;
-        });
 
         return res.status(409).json({
-          error: `This face scan is already enrolled on an existing registered account (${masked}). Multi-accounting is prohibited on TimeBank.`,
+          error: `This face scan is already enrolled on an existing registered account (${rawEmail}). Multi-accounting is prohibited on TimeBank.`,
           code: "DUPLICATE_FACE",
           duplicateFace: true,
-          matchedEmail: masked,
+          matchedEmail: rawEmail,
+          primaryEmail: rawEmail,
           reasons: fraudCheck.reasons,
         });
       }
