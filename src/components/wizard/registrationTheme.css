@@ -1,0 +1,283 @@
+/* ─── Registration Wizard Stitch Theme ─────────────────────────────────────── */
+
+/* Keyframe Animations */
+@keyframes regFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes regFloatOrb1 {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(-30px, 25px) scale(1.08);
+  }
+}
+
+@keyframes regFloatOrb2 {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(35px, -20px) scale(1.12);
+  }
+}
+
+@keyframes regCheckmarkPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-20deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15) rotate(5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes regShineEffect {
+  0% {
+    transform: translateX(-100%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(200%) skewX(-20deg);
+  }
+}
+
+/* Staggered Entrance Utility Classes */
+.animate-hero-badge {
+  animation: regFadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.animate-hero-title {
+  animation: regFadeUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+  opacity: 0;
+}
+.animate-hero-desc {
+  animation: regFadeUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+  opacity: 0;
+}
+.animate-card-1 {
+  animation: regFadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.28s forwards;
+  opacity: 0;
+}
+.animate-card-2 {
+  animation: regFadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.38s forwards;
+  opacity: 0;
+}
+.animate-accordion {
+  animation: regFadeUp 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.46s forwards;
+  opacity: 0;
+}
+
+/* Motion keyframes & effects from Stitch Step Wizard */
+@keyframes ambientGlow {
+  0%, 100% { transform: scale(1) translate(0px, 0px); opacity: 0.45; }
+  50% { transform: scale(1.15) translate(20px, -15px); opacity: 0.7; }
+}
+
+@keyframes scanLaser {
+  0% { top: 0%; opacity: 0.9; }
+  50% { top: 96%; opacity: 1; }
+  100% { top: 0%; opacity: 0.9; }
+}
+
+@keyframes pulseRing {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.45); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(79, 70, 229, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+}
+
+@keyframes shimmerSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes checkPop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-ambient-1 {
+  animation: ambientGlow 14s ease-in-out infinite alternate;
+}
+.animate-ambient-2 {
+  animation: ambientGlow 18s ease-in-out 3s infinite alternate-reverse;
+}
+.laser-beam {
+  animation: scanLaser 2.4s ease-in-out infinite;
+}
+.active-ring-pulse {
+  animation: pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.check-pop {
+  animation: checkPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  transform: translateX(-150%);
+}
+.btn-shimmer:hover::after {
+  animation: shimmerSweep 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Step pane slide transitions */
+.step-pane {
+  transition: opacity 0.32s cubic-bezier(0.4, 0, 0.2, 1), transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.step-pane.pane-enter {
+  opacity: 1;
+  transform: translateX(0);
+}
+.step-pane.pane-leave-left {
+  opacity: 0;
+  transform: translateX(-24px);
+}
+.step-pane.pane-leave-right {
+  opacity: 0;
+  transform: translateX(24px);
+}
+
+/* Floating Ambient Background Orbs */
+.reg-orb-1 {
+  animation: regFloatOrb1 16s ease-in-out infinite;
+}
+.reg-orb-2 {
+  animation: regFloatOrb2 20s ease-in-out infinite;
+}
+
+/* Wizard Role Cards */
+.reg-role-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.75rem 1.5rem;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  outline: none;
+}
+
+.reg-role-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 40px -10px rgba(0, 0, 0, 0.7), 0 0 20px rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+.reg-role-card.is-active {
+  border-color: #6366f1 !important;
+  box-shadow: 0 20px 45px -10px rgba(99, 102, 241, 0.35), 0 0 0 2px #6366f1 !important;
+  background: rgba(22, 30, 56, 0.9) !important;
+}
+
+.reg-role-card.is-active .selection-check {
+  animation: regCheckmarkPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  display: flex !important;
+}
+
+/* Checkmark badge */
+.selection-check {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: #6366f1;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.5);
+  z-index: 10;
+}
+
+/* Feature Pills */
+.reg-feature-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.24s cubic-bezier(0.2, 0, 0, 1);
+  cursor: default;
+}
+
+.reg-feature-pill:hover {
+  transform: translateY(-1.5px) scale(1.02);
+  background: rgba(99, 102, 241, 0.15);
+  color: #ffffff;
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+/* Shimmer Button Overlay */
+.btn-shine-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: regShineEffect 2.8s infinite ease-in-out;
+  pointer-events: none;
+}
+
+/* Accordion Transition */
+.reg-accordion-content {
+  transition: max-height 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease, margin-top 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-hero-badge,
+  .animate-hero-title,
+  .animate-hero-desc,
+  .animate-card-1,
+  .animate-card-2,
+  .animate-accordion,
+  .reg-orb-1,
+  .reg-orb-2,
+  .btn-shine-overlay {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .reg-role-card,
+  .reg-feature-pill,
+  .reg-accordion-content {
+    transition: none !important;
+  }
+}

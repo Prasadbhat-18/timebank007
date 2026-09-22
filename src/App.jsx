@@ -2173,15 +2173,6 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [loginCountdown, setLoginCountdown] = useState(0);
 
-  // Student Registration states
-  const [rn, setRn] = useState(""), [re, setRe] = useState(""), [rp, setRp] = useState(""), [rb, setRb] = useState(""), [rc, setRc] = useState("");
-  const [selectedCollegeDoc, setSelectedCollegeDoc] = useState(null);
-  const [rphone, setRphone] = useState(""), [rpin, setRpin] = useState("");
-  const [regOtp, setRegOtp] = useState("");
-  const [regOtpSent, setRegOtpSent] = useState(false);
-  const [regCountdown, setRegCountdown] = useState(0);
-  const [emailVerified, setEmailVerified] = useState(false);
-
   const [forgotEmail, setForgotEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -2208,10 +2199,6 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
         setLoginOtp(autofillOtpData.code);
         setSignInMethod("otp");
         setLoginOtpSent(true);
-      } else if (tab === "register") {
-        if (autofillOtpData.email) setRe(autofillOtpData.email);
-        setRegOtp(autofillOtpData.code);
-        setRegOtpSent(true);
       }
     }
   }, [autofillOtpData, tab]);
@@ -2222,13 +2209,6 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     const timer = setInterval(() => setLoginCountdown(c => c - 1), 1000);
     return () => clearInterval(timer);
   }, [loginCountdown]);
-
-  // Register countdown timer
-  useEffect(() => {
-    if (regCountdown <= 0) return;
-    const timer = setInterval(() => setRegCountdown(c => c - 1), 1000);
-    return () => clearInterval(timer);
-  }, [regCountdown]);
 
   const cx = 34, cy = 34;
   const hx = cx + 14 * Math.sin((clockAngle.h * Math.PI) / 180);
@@ -2345,73 +2325,109 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
     }
   };
 
-  const handleStudentRegister = async () => {
-    if (!rn || !re) {
-      setError("Full legal name and college email are required.");
-      return;
-    }
-    if (!rc) {
-      setError("Please select your college/institution.");
-      return;
-    }
-    if (!faceDescriptor) {
-      setError("Live face scan is mandatory to enroll your biometric profile.");
-      return;
-    }
+  if (tab === "register" && !regRole) {
+    return (
+      <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2, padding: "1rem 0", minHeight: "85vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <LandingChoice
+          onSelectRole={(r) => { setRegRole(r === "general_user" ? "general" : r); setError(""); }}
+          onBackToLogin={() => { setTab("login"); setRegRole(null); setError(""); }}
+          onBackToHome={() => { if (nav) nav("landing"); }}
+        />
+      </div>
+    );
+  }
 
-    setError("");
-    setLoading(true);
-    try {
-      await doRegister("student", {
-        name: rn,
-        email: re,
-        bio: rb,
-        college: rc,
-        collegeId: selectedCollegeDoc?._id || null,
-        collegeIdNumber: rpin,
-        phone: rphone,
-        faceDescriptor,
-        otp: regOtp || undefined,
-      });
-    } catch (e) {
-      setError(e.message || "Failed to create student account.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGeneralRegister = async () => {
-    if (!rn || !re) {
-      setError("Full name and email address are required.");
-      return;
-    }
-    if (!faceDescriptor) {
-      setError("Live face scan is mandatory to enroll your biometric profile.");
-      return;
-    }
-
-    setError("");
-    setLoading(true);
-    try {
-      await doRegister("general_user", {
-        name: rn,
-        email: re,
-        bio: rb,
-        phone: rphone,
-        faceDescriptor,
-        otp: regOtp || undefined,
-      });
-    } catch (e) {
-      setError(e.message || "Failed to create account.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (tab === "register" && regRole) {
+    return (
+      <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2, padding: "1.5rem 0.5rem", minHeight: "85vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <RegistrationWizard
+          role={regRole === "student" ? "student" : "general"}
+          onCancel={() => { setRegRole(null); setError(""); }}
+          onRedirectToLogin={(email) => {
+            setRegRole(null);
+            setTab("login");
+            setLe(email || "");
+            setSignInMethod("otp");
+            setError(`Existing account detected (${email}). Please sign in with your email code or password.`);
+            setLoginOtpSent(false);
+          }}
+          onComplete={(token, newUser) => {
+            if (token && newUser) {
+              localStorage.setItem("token", token);
+              if (setUser) setUser(newUser);
+              if (nav) nav("dashboard");
+              if (notify) notify(`Welcome to TimeBank, ${newUser.name.split(" ")[0]}! 🚀`);
+            }
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2, padding: "2.5rem 1rem", minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: tab === "register" && regRole ? 560 : 440, margin: "0 auto" }}>
-        
+    <div className="auth-wrap" style={{ background: "transparent", position: "relative", zIndex: 2, padding: "2.5rem 1rem", minHeight: "85vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {/* Ambient Pulsing Background Orbs */}
+      <div aria-hidden="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 0 }}>
+        <div
+          className="reg-orb-1"
+          style={{
+            position: "absolute",
+            top: "-4rem",
+            left: "25%",
+            width: "500px",
+            height: "500px",
+            background: "radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, rgba(59, 130, 246, 0.1) 40%, transparent 70%)",
+            borderRadius: "50%",
+            filter: "blur(60px)",
+            opacity: 0.7,
+          }}
+        />
+        <div
+          className="reg-orb-2"
+          style={{
+            position: "absolute",
+            bottom: "5%",
+            right: "20%",
+            width: "520px",
+            height: "520px",
+            background: "radial-gradient(circle, rgba(16, 185, 129, 0.16) 0%, rgba(99, 102, 241, 0.08) 45%, transparent 70%)",
+            borderRadius: "50%",
+            filter: "blur(70px)",
+            opacity: 0.65,
+          }}
+        />
+      </div>
+
+      <div style={{ width: "100%", maxWidth: 440, margin: "0 auto", position: "relative", zIndex: 1 }}>
+        {/* Back to Home Button */}
+        {nav && (
+          <div style={{ marginBottom: "1rem" }}>
+            <button
+              type="button"
+              onClick={() => nav("landing")}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#94a3b8",
+                fontSize: 13,
+                fontWeight: 500,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+                padding: "6px 10px",
+                borderRadius: 8,
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#94a3b8")}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span>
+              <span>Back to home</span>
+            </button>
+          </div>
+        )}
+
         {/* Auth Card */}
         <motion.div
           className="auth-card"
@@ -2419,7 +2435,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           style={{
-            background: "rgba(18, 24, 38, 0.85)",
+            background: "rgba(18, 24, 38, 0.88)",
             backdropFilter: "blur(20px)",
             WebkitBackdropFilter: "blur(20px)",
             border: "1px solid rgba(255, 255, 255, 0.08)",
@@ -2435,10 +2451,10 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
               <span>⚡</span> TimeBank Verified
             </div>
             <h2 style={{ fontSize: 24, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em", margin: "0 0 6px" }}>
-              {tab === "login" ? "Welcome Back" : tab === "register" && !regRole ? "Get Started" : regRole === "student" ? "Student Registration" : "Create Account"}
+              {tab === "login" ? "Welcome Back" : "Reset Password"}
             </h2>
             <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
-              {tab === "login" ? "Sign in with One-Time Email Code & Face Scan" : "Join the decentralized skill exchange network"}
+              {tab === "login" ? "Sign in with One-Time Email Code & Face Scan" : "Enter your email address to receive password reset instructions."}
             </p>
           </div>
           
@@ -2462,50 +2478,6 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
               <span>⚠️</span>
               <span style={{ flex: 1 }}>{error}</span>
             </motion.div>
-          )}
-
-          {/* Primary Tabs (Sign in / Sign up) */}
-          {tab !== "forgot" && !regRole && (
-            <div style={{ display: "flex", background: "rgba(0, 0, 0, 0.3)", borderRadius: 12, padding: 4, marginBottom: "1.5rem", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
-              <button
-                type="button"
-                className={`atab${tab === "login" ? " on" : ""}`}
-                onClick={() => { setTab("login"); setRegRole(null); setError(""); }}
-                style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  borderRadius: 9,
-                  border: "none",
-                  background: tab === "login" ? "var(--em)" : "transparent",
-                  color: tab === "login" ? "#000" : "var(--text-secondary)",
-                  fontWeight: tab === "login" ? 700 : 500,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={`atab${tab === "register" ? " on" : ""}`}
-                onClick={() => { setTab("register"); setError(""); }}
-                style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  borderRadius: 9,
-                  border: "none",
-                  background: tab === "register" ? "var(--em)" : "transparent",
-                  color: tab === "register" ? "#000" : "var(--text-secondary)",
-                  fontWeight: tab === "register" ? 700 : 500,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                Sign Up
-              </button>
-            </div>
           )}
 
           {/* ─── SIGN IN TAB ─── */}
@@ -2743,39 +2715,35 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                   </button>
                 </div>
               )}
+
+              {/* Stitch-style Link to Registration */}
+              <div style={{ marginTop: "1.75rem", paddingTop: "1.25rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)", textAlign: "center" }}>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+                  Don't have an account yet?{" "}
+                  <button
+                    type="button"
+                    onClick={() => { setTab("register"); setRegRole(null); setError(""); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#38bdf8",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      textDecoration: "underline",
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    <span>Create an Account</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_forward</span>
+                  </button>
+                </p>
+              </div>
             </div>
-          )}
-
-          {/* ─── SIGN UP: ROLE PICKER ─── */}
-          {tab === "register" && !regRole && (
-            <LandingChoice
-              onSelectRole={(r) => { setRegRole(r === "general_user" ? "general" : r); setError(""); }}
-              onBackToLogin={() => { setTab("login"); setRegRole(null); setError(""); }}
-            />
-          )}
-
-          {/* ─── SIGN UP: STEP-BY-STEP REGISTRATION WIZARD ─── */}
-          {tab === "register" && regRole && (
-            <RegistrationWizard
-              role={regRole === "student" ? "student" : "general"}
-              onCancel={() => { setRegRole(null); setError(""); }}
-              onRedirectToLogin={(email) => {
-                setRegRole(null);
-                setTab("login");
-                setLe(email || "");
-                setSignInMethod("otp");
-                setError(`Existing account detected (${email}). Please sign in with your email code or password.`);
-                setLoginOtpSent(false);
-              }}
-              onComplete={(token, newUser) => {
-                if (token && newUser) {
-                  localStorage.setItem("token", token);
-                  if (setUser) setUser(newUser);
-                  if (nav) nav("dashboard");
-                  if (notify) notify(`Welcome to TimeBank, ${newUser.name.split(" ")[0]}! 🚀`);
-                }
-              }}
-            />
           )}
 
           {/* ─── FORGOT PASSWORD ─── */}
