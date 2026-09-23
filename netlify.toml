@@ -5,7 +5,6 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["express", "mongoose", "pdfkit", "nodemailer", "web-push", "ethers", "jsonwebtoken", "bcryptjs", "serverless-http", "cors"]
 
 [build.environment]
   NODE_VERSION = "20"
