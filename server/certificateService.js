@@ -1,4 +1,5 @@
 // ─── TimeBank — Verifiable Certificate Service ───────────────────────────────
+import "./pdfkitVirtualData.js";
 import crypto from "crypto";
 import QRCode from "qrcode";
 import PDFDocument from "pdfkit";
