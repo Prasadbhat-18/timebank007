@@ -591,8 +591,25 @@ export default function App() {
     setModal(null);
   };
 
-  const getU = useCallback((id) => users.find((u) => u._id === id), [users]);
-  const getSk = useCallback((id) => skills.find((s) => s._id === id), [skills]);
+  const getU = useCallback((id) => {
+    if (!id) return null;
+    if (typeof id === "object") {
+      if (id.name) return id;
+      const objId = id._id || id.id;
+      return users.find((u) => String(u._id) === String(objId)) || id;
+    }
+    return users.find((u) => String(u._id) === String(id));
+  }, [users]);
+
+  const getSk = useCallback((id) => {
+    if (!id) return null;
+    if (typeof id === "object") {
+      if (id.name || id.title) return id;
+      const objId = id._id || id.id;
+      return skills.find((s) => String(s._id) === String(objId)) || id;
+    }
+    return skills.find((s) => String(s._id) === String(id));
+  }, [skills]);
 
   const refreshUser = useCallback(async () => {
     if (!user) return;
@@ -3210,14 +3227,16 @@ function Services({ user, skills, notify, nav, getU, getSk, setModal, refreshUse
 }
 
 // ─── BOOKINGS────────────────────────────────────────────────────────────────
-function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setModal, openChat, nav }) {
+function Bookings({ user, wallet, notify, getU, getSk, skills, refreshUser, connectWallet, setModal, openChat, nav }) {
   const [bookings, setBookings] = useState([]);
   const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.fetchUserBookings(user._id).then((b) => { setBookings(b); setLoading(false); }).catch(() => setLoading(false));
+    api.fetchUserBookings(user._id)
+      .then((b) => { setBookings(Array.isArray(b) ? b : []); setLoading(false); })
+      .catch(() => setLoading(false));
   }, [user]);
   useEffect(load, [load]);
 
@@ -3227,7 +3246,7 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
   const confirm = async (b) => {
     try {
       await api.updateBooking(b._id, { status: "confirmed" });
-      notify("Booking confirmed!"); load();
+      notify("Booking confirmed! ✅"); load();
     } catch (e) { notify(e.message, "error"); }
   };
 
@@ -3240,9 +3259,11 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
 
   const complete = async (b) => {
     let txHash = null, blockNumber = null;
-    const requester = getU(b.requesterId);
-    const provider = getU(b.providerId);
-    if (wallet?.signer && provider?.wallet) {
+    const providerId = typeof b.providerId === "object" ? b.providerId?._id : b.providerId;
+    const isProvider = String(providerId) === String(user._id);
+    const provider = typeof b.providerId === "object" ? b.providerId : (getU ? getU(providerId) : null);
+
+    if (!isProvider && wallet?.signer && provider?.wallet) {
       try {
         notify("Signing blockchain transaction on Polygon Amoy...", "info");
         const result = await chain.sendCredits(wallet.signer, provider.wallet, b.hours, wallet.isInbuilt);
@@ -3252,15 +3273,33 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
           notify("On-chain transfer confirmed! ⛓️");
         }
       } catch (e) {
-        console.warn("Client-side direct transfer failed, using server gasless relayer:", e);
+        console.warn("Client-side direct transfer fallback to gasless relayer:", e);
       }
     }
+
     try {
-      await api.completeBooking(b._id, txHash, blockNumber);
-      notify("Session completed! Credits transferred & recorded on blockchain.");
+      const res = await api.confirmCompletion(b._id, user._id);
+      if (res?.status === "completed") {
+        notify("Session completed! Credits transferred & recorded on blockchain. 🎉");
+      } else {
+        notify("Completion confirmed! Waiting for the other party to confirm. ✅");
+      }
       load();
       if (refreshUser) refreshUser();
-    } catch (e) { notify(e.message, "error"); }
+    } catch (e) {
+      try {
+        const res2 = await api.completeBooking(b._id, txHash, blockNumber);
+        if (res2?.status === "completed") {
+          notify("Session completed! Credits transferred. 🎉");
+        } else {
+          notify(res2?.message || "Completion recorded. Waiting for other party.");
+        }
+        load();
+        if (refreshUser) refreshUser();
+      } catch (err) {
+        notify(err.message, "error");
+      }
+    }
   };
 
   return (
@@ -3274,36 +3313,91 @@ function Bookings({ user, wallet, notify, getU, refreshUser, connectWallet, setM
       ) : (
         <motion.div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }} variants={stagger} initial="initial" animate="animate">
           {filtered.map((b) => {
-            const isProvider = b.providerId === user._id;
-            const other = getU(isProvider ? b.requesterId : b.providerId);
-            const statusColors = { pending: "ta", confirmed: "tb", completed: "tg", cancelled: "tr" };
+            const providerId = typeof b.providerId === "object" ? b.providerId?._id : b.providerId;
+            const requesterId = typeof b.requesterId === "object" ? b.requesterId?._id : b.requesterId;
+            const isProvider = String(providerId) === String(user._id);
+
+            const providerObj = (typeof b.providerId === "object" && b.providerId?.name) ? b.providerId : (getU ? getU(providerId) : null);
+            const requesterObj = (typeof b.requesterId === "object" && b.requesterId?.name) ? b.requesterId : (getU ? getU(requesterId) : null);
+            const other = isProvider ? requesterObj : providerObj;
+            const otherId = isProvider ? requesterId : providerId;
+            const otherName = other?.name || (isProvider ? "Requester" : "Service Provider");
+            const otherAvatar = other?.avatar || (otherName ? otherName.charAt(0).toUpperCase() : "?");
+
+            const serviceObj = (typeof b.serviceId === "object" && b.serviceId?.title) ? b.serviceId : (getSk ? getSk(b.serviceId) : null);
+            const serviceTitle = serviceObj?.title || serviceObj?.name || "";
+
+            const statusColors = { pending: "ta", confirmed: "tb", completed: "tg", cancelled: "tr", disputed: "tr" };
+            const userConfirmed = isProvider ? b.providerConfirmed : b.requesterConfirmed;
+            const otherConfirmed = isProvider ? b.requesterConfirmed : b.providerConfirmed;
+
             return (
               <motion.div key={b._id} className="bk-row" variants={fadeUp()}>
-                <div className="av" style={{ width: 34, height: 34, fontSize: 11, cursor: "pointer" }} onClick={() => other && setModal && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.avatar || "?"}</div>
+                <div
+                  className="av"
+                  style={{ width: 38, height: 38, fontSize: 13, cursor: otherId ? "pointer" : "default", flexShrink: 0 }}
+                  onClick={() => otherId && setModal && setModal(<ProviderProfileModal userId={otherId} notify={notify} close={() => setModal(null)} />)}
+                >
+                  {otherAvatar}
+                </div>
                 <div style={{ flex: 1 }}>
-                  <div className="btwn">
-                    <div style={{ fontWeight: 700, fontSize: 14, cursor: "pointer" }} onClick={() => other && setModal && setModal(<ProviderProfileModal userId={other._id} notify={notify} close={() => setModal(null)} />)}>{other?.name || "User"}</div>
-                    <span className={`tag ${statusColors[b.status]}`}>{b.status}</span>
+                  <div className="btwn" style={{ alignItems: "center" }}>
+                    <div
+                      style={{ fontWeight: 700, fontSize: 15, cursor: otherId ? "pointer" : "default", color: "var(--text-bright, #fff)" }}
+                      onClick={() => otherId && setModal && setModal(<ProviderProfileModal userId={otherId} notify={notify} close={() => setModal(null)} />)}
+                    >
+                      {otherName} {other?.college && <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.7, marginLeft: 6 }}>({other.college})</span>}
+                    </div>
+                    <span className={`tag ${statusColors[b.status] || "tb"}`}>{b.status}</span>
                   </div>
+
+                  {serviceTitle && (
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--em, #10b981)", marginTop: 2 }}>
+                      📌 {serviceTitle}
+                    </div>
+                  )}
+
                   <div className="text-s" style={{ fontSize: 12, marginTop: 2 }}>
                     {isProvider ? "You are providing" : "You are requesting"} · {b.hours}h · {new Date(b.scheduledStart).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
                   </div>
+
                   {b.notes && <div className="text-m" style={{ fontSize: 12, marginTop: 4 }}>"{b.notes}"</div>}
                   {b.txHash && <a href={chain.txLink(b.txHash)} target="_blank" rel="noreferrer" className="chash" style={{ display: "inline-block", marginTop: 4, color: "var(--em)" }}>View on Polygonscan ↗</a>}
-                  <div className="row mt1" style={{ gap: 6, flexWrap: "wrap" }}>
-                    {b.status === "pending" && isProvider && <><button className="btn btn-g btn-sm" onClick={() => confirm(b)}>Confirm</button><button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Decline</button></>}
-                    {b.status === "confirmed" && isProvider && <button className="btn btn-g btn-sm" onClick={() => complete(b)}>Complete session</button>}
-                    {b.status === "pending" && !isProvider && <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Cancel</button>}
-                    
+
+                  <div className="row mt1" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {b.status === "pending" && isProvider && (
+                      <>
+                        <button className="btn btn-g btn-sm" onClick={() => confirm(b)}>Confirm</button>
+                        <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Decline</button>
+                      </>
+                    )}
+                    {b.status === "pending" && !isProvider && (
+                      <button className="btn btn-o btn-sm" onClick={() => cancel(b)}>Cancel</button>
+                    )}
+
+                    {b.status === "confirmed" && (
+                      <>
+                        {userConfirmed ? (
+                          <span style={{ fontSize: 12, color: "var(--em, #10b981)", display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: "rgba(16, 185, 129, 0.12)", border: "1px solid rgba(16, 185, 129, 0.3)", borderRadius: 6, fontWeight: 600 }}>
+                            ✓ You confirmed completion {otherConfirmed ? "(Finalizing...)" : "(Waiting for other party to confirm)"}
+                          </span>
+                        ) : (
+                          <button className="btn btn-g btn-sm" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 }} onClick={() => complete(b)}>
+                            ✓ {isProvider ? "Complete session" : "Confirm Session Completed"}
+                          </button>
+                        )}
+                      </>
+                    )}
+
                     {b.status !== "cancelled" && (
                       <button
                         type="button"
                         className="btn btn-o btn-sm"
                         style={{ display: "inline-flex", alignItems: "center", gap: 4, ...(b.status === "completed" ? { opacity: 0.75 } : { fontWeight: 600 }) }}
                         onClick={async () => {
-                          const otherId = isProvider ? b.requesterId : b.providerId;
+                          const chatOtherId = isProvider ? requesterId : providerId;
                           try {
-                            const chat = await api.createChat([user._id, otherId], { bookingId: b._id, serviceId: b.serviceId });
+                            const chat = await api.createChat([user._id, chatOtherId], { bookingId: b._id, serviceId: b.serviceId?._id || b.serviceId });
                             if (openChat) openChat(chat._id);
                             else if (nav) nav("chat");
                           } catch (e) {

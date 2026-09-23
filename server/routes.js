@@ -752,7 +752,14 @@ r.get("/auth/me", requireAuth, async (req, res) => {
     // Ensure all transactions & on-chain deposits are synchronized to the blockchain ledger
     syncUserBlockchainAndDeposits(user).catch(() => {});
 
-    res.json({ user });
+    const safeUser = user.toObject ? user.toObject() : { ...user };
+    delete safeUser.password;
+    delete safeUser.idCardImage;
+    delete safeUser.faceDescriptor;
+    delete safeUser.deviceFingerprints;
+    delete safeUser.pushSubscriptions;
+
+    res.json({ user: safeUser });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2447,13 +2454,20 @@ r.post("/notifications/test-push", requireAuth, async (req, res) => {
 
 // ─── USERS ───────────────────────────────────────────────────────────────────
 r.get("/users", async (_req, res) => {
-  try { res.json(await User.find()); }
+  try {
+    const users = await User.find()
+      .select("-idCardImage -faceDescriptor -password -deviceFingerprints -pushSubscriptions")
+      .lean();
+    res.json(users);
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.get("/users/:id", async (req, res) => {
   try {
-    const u = await User.findById(req.params.id);
+    const u = await User.findById(req.params.id)
+      .select("-idCardImage -faceDescriptor -password -deviceFingerprints -pushSubscriptions")
+      .lean();
     if (!u) return res.status(404).json({ error: "User not found" });
     res.json(u);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2463,7 +2477,9 @@ r.put("/users/:id", async (req, res) => {
   try {
     // Prevent client from setting protected fields
     const { credits, level, xp, restrictionUntil, trustScore, badges, ...safeData } = req.body;
-    const u = await User.findByIdAndUpdate(req.params.id, safeData, { new: true });
+    const u = await User.findByIdAndUpdate(req.params.id, safeData, { new: true })
+      .select("-idCardImage -faceDescriptor -password -deviceFingerprints -pushSubscriptions")
+      .lean();
     res.json(u);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2505,7 +2521,7 @@ r.get("/users/:id/level-progress", async (req, res) => {
 // ── Public Enhanced Profile ──
 r.get("/users/:id/profile", async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select("-password -email -phone -wallet");
+    const user = await User.findById(req.params.id).select("-password -email -phone -wallet -idCardImage -faceDescriptor -deviceFingerprints -pushSubscriptions").lean();
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const activeServices = await Service.find({ providerId: req.params.id, status: "active" }).populate("skillId");
@@ -2686,9 +2702,19 @@ r.get("/bookings", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), a
     if (req.user.role === "collegeAdmin") {
       const collegeUsers = await User.find({ college: req.user.college }).select('_id');
       const userIds = collegeUsers.map(u => u._id);
-      res.json(await Booking.find({ $or: [{ providerId: { $in: userIds } }, { requesterId: { $in: userIds } }] }).sort({ createdAt: -1 }));
+      res.json(await Booking.find({ $or: [{ providerId: { $in: userIds } }, { requesterId: { $in: userIds } }] })
+        .populate("providerId", "name email avatar role college collegeId wallet trustScore level")
+        .populate("requesterId", "name email avatar role college collegeId wallet trustScore level")
+        .populate("serviceId", "title description hours")
+        .sort({ createdAt: -1 })
+        .lean());
     } else {
-      res.json(await Booking.find().sort({ createdAt: -1 })); 
+      res.json(await Booking.find()
+        .populate("providerId", "name email avatar role college collegeId wallet trustScore level")
+        .populate("requesterId", "name email avatar role college collegeId wallet trustScore level")
+        .populate("serviceId", "title description hours")
+        .sort({ createdAt: -1 })
+        .lean()); 
     }
   }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -2697,7 +2723,12 @@ r.get("/bookings", requireAuth, requireRole(["websiteAdmin", "collegeAdmin"]), a
 r.get("/bookings/user/:userId", async (req, res) => {
   try {
     const uid = req.params.userId;
-    res.json(await Booking.find({ $or: [{ providerId: uid }, { requesterId: uid }] }).sort({ createdAt: -1 }));
+    res.json(await Booking.find({ $or: [{ providerId: uid }, { requesterId: uid }] })
+      .populate("providerId", "name email avatar role college collegeId wallet trustScore level")
+      .populate("requesterId", "name email avatar role college collegeId wallet trustScore level")
+      .populate("serviceId", "title description hours")
+      .sort({ createdAt: -1 })
+      .lean());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2841,7 +2872,7 @@ r.put("/bookings/:id", async (req, res) => {
 // ── Confirm Completion (per-party) ──
 r.post("/bookings/:id/confirm-completion", requireAuth, async (req, res) => {
   try {
-    const callerId = req.user.id;
+    const callerId = String(req.user.id);
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
@@ -2863,7 +2894,7 @@ r.post("/bookings/:id/confirm-completion", requireAuth, async (req, res) => {
     const otherPartyId = isProvider ? booking.requesterId : booking.providerId;
     await createNotification(otherPartyId, "booking",
       "Completion Confirmation Pending ✅",
-      "The other party has confirmed completion. Please confirm on your end to finalize time exchange.",
+      `${isProvider ? "Provider" : "Requester"} has confirmed completion. Please confirm on your end to finalize time exchange.`,
       { bookingId: booking._id }
     );
 
@@ -2877,10 +2908,35 @@ r.post("/bookings/:id/complete", requireAuth, async (req, res) => {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: "Booking not found" });
 
+    const callerId = String(req.user.id);
+    const isProvider = booking.providerId.toString() === callerId;
+    const isRequester = booking.requesterId.toString() === callerId;
     const isPlatformAdmin = ["websiteAdmin", "super_admin"].includes(req.user.role);
-    if (!isPlatformAdmin && (!booking.providerConfirmed || !booking.requesterConfirmed)) {
-      return res.status(400).json({ error: "Both provider and requester must independently confirm completion before the booking can be marked completed." });
+
+    if (!isProvider && !isRequester && !isPlatformAdmin) {
+      return res.status(403).json({ error: "Not authorized to complete this booking" });
     }
+
+    if (isProvider) booking.providerConfirmed = true;
+    if (isRequester) booking.requesterConfirmed = true;
+    await booking.save();
+
+    if (!isPlatformAdmin && (!booking.providerConfirmed || !booking.requesterConfirmed)) {
+      const otherPartyId = isProvider ? booking.requesterId : booking.providerId;
+      await createNotification(otherPartyId, "booking",
+        "Completion Confirmation Pending ✅",
+        `${isProvider ? "Provider" : "Requester"} has confirmed completion. Please confirm on your end to finalize time exchange.`,
+        { bookingId: booking._id }
+      );
+      return res.json({
+        ...booking.toObject(),
+        status: booking.status,
+        providerConfirmed: booking.providerConfirmed,
+        requesterConfirmed: booking.requesterConfirmed,
+        message: "You confirmed completion! Waiting for the other party to confirm."
+      });
+    }
+
     return completeBookingInternal(booking, req, res);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
