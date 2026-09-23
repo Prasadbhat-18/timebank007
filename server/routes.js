@@ -3646,12 +3646,38 @@ r.get("/aicte/certificate/:certId/download", async (req, res) => {
     const pdfBuffer = await renderCertificatePdf(cert, student, college, clientUrl);
     res.set({
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename=aicte-certificate-${cert.certId.slice(0, 8)}.pdf`,
-      "Content-Length": pdfBuffer.length,
+      "Content-Disposition": `attachment; filename="aicte-certificate-${cert.certId.slice(0, 8)}.pdf"`,
+      "Content-Length": String(pdfBuffer.length),
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
     });
     res.send(pdfBuffer);
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Remove / Cancel Certificate from User Ledger
+r.delete("/aicte/certificate/:certId", requireAuth, async (req, res) => {
+  try {
+    const cert = await Certificate.findOne({ certId: req.params.certId });
+    if (!cert) return res.status(404).json({ error: "Certificate not found." });
+
+    // Only owner of the certificate or an admin can remove it
+    const isOwner = String(cert.user) === String(req.user.id);
+    const isAdmin = ["collegeAdmin", "institute_admin", "websiteAdmin", "super_admin"].includes(req.user.role);
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: "Access denied. You cannot remove this certificate." });
+    }
+
+    // Unlink certId from any associated Aicte activity if present
+    await Aicte.updateMany({ certId: cert.certId }, { $set: { certId: "" } });
+
+    await Certificate.deleteOne({ _id: cert._id });
+    res.json({ ok: true, message: "Certificate removed successfully." });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

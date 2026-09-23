@@ -182,6 +182,26 @@ export const requestAicteCertificate = (periodStart, periodEnd) =>
   req("/aicte/certificate/request", { method: "POST", body: JSON.stringify({ periodStart, periodEnd }) });
 export const getCertificateDownloadUrl = (certId) =>
   `${BASE}/aicte/certificate/${certId}/download`;
+export const downloadCertificatePdf = async (certId) => {
+  const url = getCertificateDownloadUrl(certId);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Download request failed");
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = `aicte-certificate-${certId.slice(0, 8)}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 3000);
+  } catch {
+    window.open(url, "_blank");
+  }
+};
+export const deleteCertificate = (certId) =>
+  req(`/aicte/certificate/${certId}`, { method: "DELETE" });
 export const verifyCertificatePublic = async (certId) => {
   return req(`/aicte/verify/${certId}`);
 };

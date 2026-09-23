@@ -27,7 +27,7 @@ const NOTIF_ICONS = {
   restriction: "🚫",
 };
 
-export default function NotificationBell({ user, notify }) {
+export default function NotificationBell({ user, notify, onNavigate, setModal }) {
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -177,6 +177,84 @@ export default function NotificationBell({ user, notify }) {
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleNotificationClick = async (n) => {
+    if (!n.read) {
+      handleMarkRead(n._id);
+    }
+    setOpen(false);
+
+    if (!onNavigate) return;
+
+    const type = n.type;
+    const data = n.data || {};
+
+    // 1. AICTE related notifications
+    if (
+      type === "aicte_submission" ||
+      type === "aicte_certificate_request" ||
+      data.url === "/admin" ||
+      data.aicteId
+    ) {
+      if (user?.role === "websiteAdmin" || user?.role === "super_admin") {
+        onNavigate("website-admin");
+      } else if (user?.role === "collegeAdmin" || user?.role === "institute_admin") {
+        onNavigate("college-admin");
+      } else {
+        onNavigate("aicte");
+      }
+      return;
+    }
+
+    if (type === "badge" || type === "aicte_reward" || n.title?.includes("AICTE") || data.certId) {
+      onNavigate("aicte");
+      if (data.certId && setModal) {
+        import("./VerifyCertificate.jsx").then(({ default: VerifyCert }) => {
+          setModal(<VerifyCert certId={data.certId} onClose={() => setModal(null)} />);
+        });
+      }
+      return;
+    }
+
+    // 2. Chat notifications
+    if (type === "chat" || data.chatId || (data.bookingId && type === "chat")) {
+      onNavigate("chat");
+      return;
+    }
+
+    // 3. Bookings & Matches
+    if (type === "booking" || type === "match_request" || type === "match_accepted" || type === "completion") {
+      onNavigate("bookings");
+      return;
+    }
+
+    // 4. Wallet & Credits
+    if (type === "transaction_confirmed" || type === "low_balance" || type === "credit") {
+      onNavigate("wallet");
+      return;
+    }
+
+    // 5. Disputes
+    if (type === "dispute") {
+      if (["collegeAdmin", "institute_admin", "websiteAdmin", "super_admin"].includes(user?.role)) {
+        onNavigate(user?.role === "websiteAdmin" ? "website-admin" : "college-admin");
+      } else {
+        onNavigate("bookings");
+      }
+      return;
+    }
+
+    // 6. Profile / Account
+    if (type === "verification_decision" || type === "welcome" || type === "level_up" || type === "warning") {
+      onNavigate("profile");
+      return;
+    }
+
+    // Default fallback based on role
+    if (user?.role === "student") {
+      onNavigate("dashboard");
     }
   };
 
@@ -364,17 +442,17 @@ export default function NotificationBell({ user, notify }) {
                 notifications.map((n) => (
                   <div
                     key={n._id}
-                    onClick={(e) => !n.read && handleMarkRead(n._id, e)}
+                    onClick={() => handleNotificationClick(n)}
                     style={{
                       display: "flex",
                       gap: 10,
                       padding: "10px 12px",
                       borderRadius: 10,
                       marginBottom: 4,
-                      background: n.read ? "transparent" : "rgba(16, 185, 129, 0.06)",
-                      border: n.read ? "1px solid transparent" : "1px solid rgba(16, 185, 129, 0.2)",
-                      cursor: n.read ? "default" : "pointer",
-                      transition: "background 0.15s ease",
+                      background: n.read ? "rgba(255, 255, 255, 0.015)" : "rgba(16, 185, 129, 0.08)",
+                      border: n.read ? "1px solid rgba(255, 255, 255, 0.05)" : "1px solid rgba(16, 185, 129, 0.25)",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
                     }}
                   >
                     <div

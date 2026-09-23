@@ -18,6 +18,9 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
   });
   const [periodEnd, setPeriodEnd] = useState(() => new Date().toISOString().split("T")[0]);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [removingId, setRemovingId] = useState(null);
 
   const loadData = useCallback(() => {
     if (!user?._id) return;
@@ -51,6 +54,33 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
       notify(err.message || "Failed to submit certificate request", "error");
     } finally {
       setIsRequesting(false);
+    }
+  };
+
+  const handleRemoveCertificate = async (certId) => {
+    if (!window.confirm("Are you sure you want to remove this certificate from your view? You can request a fresh copy from your Institution Administrator anytime.")) {
+      return;
+    }
+    setRemovingId(certId);
+    try {
+      await api.deleteCertificate(certId);
+      setCertificates((prev) => prev.filter((c) => c.certId !== certId));
+      notify("Certificate removed successfully.", "info");
+    } catch (err) {
+      notify(err.message || "Failed to remove certificate", "error");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleDownloadPdf = async (certId) => {
+    setDownloadingId(certId);
+    try {
+      await api.downloadCertificatePdf(certId);
+    } catch {
+      notify("Failed to download certificate PDF", "error");
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -168,95 +198,132 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
 
       {/* Generated Certificates Ledger */}
       <div className="card" style={{ padding: "1.5rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isCollapsed ? 0 : "1rem", flexWrap: "wrap", gap: 10 }}>
           <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#fff", margin: 0 }}>
-              Issued Certificates & Blockchain Credentials ({certificates.length})
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>📜</span> Issued Certificates & Blockchain Credentials ({certificates.length})
             </h3>
             <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "4px 0 0" }}>
               Each certificate is cryptographically hashed with SHA-256 and verified via Polygon QR code.
             </p>
           </div>
-        </div>
-
-        {certificates.length === 0 ? (
-          <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "rgba(255, 255, 255, 0.02)", borderRadius: 12 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📜</div>
-            <div style={{ fontWeight: 600, color: "#fff", fontSize: 14, marginBottom: 4 }}>No Accredited Certificates Issued Yet</div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 420, margin: "0 auto 1.25rem", lineHeight: 1.45 }}>
-              Official accredited certificates are reviewed, cryptographically anchored, and issued exclusively by your Institution Administrator ({user?.college || "College Admin"}).
-            </div>
-            <button type="button" className="btn btn-o btn-sm" onClick={() => setRequestModal(true)}>
-              📨 Request Certificate from Admin
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {certificates.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-o btn-sm"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                style={{ fontSize: 12 }}
+              >
+                {isCollapsed ? `▼ Show Certificates (${certificates.length})` : "▲ Minimize / Collapse"}
+              </button>
+            )}
+            <button type="button" className="btn btn-o btn-sm" onClick={() => setRequestModal(true)} style={{ fontSize: 12 }}>
+              📨 Request Certificate
             </button>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {certificates.map((cert) => {
-              return (
-                <div
-                  key={cert._id || cert.certId}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 12,
-                    padding: "1rem 1.25rem",
-                    background: "rgba(255, 255, 255, 0.025)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 700, fontSize: 14.5, color: "#fff" }}>
-                        {cert.activityTitle || "Recognized AICTE Activity"}
-                      </span>
-                      <span className="tag tg" style={{ fontSize: 10 }}>+{cert.activityPoints} AICTE Points</span>
-                      <span className="tag tp" style={{ fontSize: 10 }}>✓ Verified Credential</span>
-                    </div>
+        </div>
 
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
-                      Category: <strong>{cert.activityType || "Technical Activity"}</strong> · Organizer: <strong>{cert.organizer || "Institution"}</strong> {cert.activityDate ? `· Date: ${cert.activityDate}` : ""}
-                    </div>
-
-                    <div style={{ fontSize: 10.5, fontFamily: "monospace", color: "var(--text-muted)", marginTop: 4 }}>
-                      ID: {cert.certId} · Hash: {cert.integrityHash ? cert.integrityHash.slice(0, 16) : ""}...
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <a
-                      href={api.getCertificateDownloadUrl(cert.certId)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn btn-p btn-sm"
-                      style={{ fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
-                    >
-                      📄 Download PDF
-                    </a>
-                    <button
-                      type="button"
-                      className="btn btn-o btn-sm"
-                      onClick={() => onOpenVerify && onOpenVerify(cert.certId)}
-                      style={{ fontSize: 12 }}
-                    >
-                      🔍 View Proof
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-o btn-sm"
-                      onClick={() => copyVerifyLink(cert.certId)}
-                      style={{ fontSize: 12 }}
-                    >
-                      📋 Copy Link
-                    </button>
-                  </div>
+        {!isCollapsed && (
+          <>
+            {certificates.length === 0 ? (
+              <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "rgba(255, 255, 255, 0.02)", borderRadius: 12 }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📜</div>
+                <div style={{ fontWeight: 600, color: "#fff", fontSize: 14, marginBottom: 4 }}>No Accredited Certificates Issued Yet</div>
+                <div style={{ fontSize: 12.5, color: "var(--text-secondary)", maxWidth: 420, margin: "0 auto 1.25rem", lineHeight: 1.45 }}>
+                  Official accredited certificates are reviewed, cryptographically anchored, and issued exclusively by your Institution Administrator ({user?.college || "College Admin"}).
                 </div>
-              );
-            })}
-          </div>
+                <button type="button" className="btn btn-o btn-sm" onClick={() => setRequestModal(true)}>
+                  📨 Request Certificate from Admin
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "520px", overflowY: "auto", paddingRight: 4 }}>
+                {certificates.map((cert) => {
+                  const isRemoving = removingId === cert.certId;
+                  const isDownloading = downloadingId === cert.certId;
+                  return (
+                    <div
+                      key={cert._id || cert.certId}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: 12,
+                        padding: "1rem 1.25rem",
+                        background: "rgba(255, 255, 255, 0.025)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 700, fontSize: 14.5, color: "#fff" }}>
+                            {cert.activityTitle || "Recognized AICTE Activity"}
+                          </span>
+                          <span className="tag tg" style={{ fontSize: 10 }}>+{cert.activityPoints} AICTE Points</span>
+                          <span className="tag tp" style={{ fontSize: 10 }}>✓ Verified Credential</span>
+                        </div>
+
+                        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
+                          Category: <strong>{cert.activityType || "Technical Activity"}</strong> · Organizer: <strong>{cert.organizer || "Institution"}</strong> {cert.activityDate ? `· Date: ${cert.activityDate}` : ""}
+                        </div>
+
+                        <div style={{ fontSize: 10.5, fontFamily: "monospace", color: "var(--text-muted)", marginTop: 4 }}>
+                          ID: {cert.certId} · Hash: {cert.integrityHash ? cert.integrityHash.slice(0, 16) : ""}...
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="btn btn-p btn-sm"
+                          onClick={() => handleDownloadPdf(cert.certId)}
+                          disabled={isDownloading}
+                          style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
+                        >
+                          {isDownloading ? "⏳ Downloading..." : "📄 Download PDF"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-o btn-sm"
+                          onClick={() => onOpenVerify && onOpenVerify(cert.certId)}
+                          style={{ fontSize: 12 }}
+                        >
+                          🔍 View Proof
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-o btn-sm"
+                          onClick={() => copyVerifyLink(cert.certId)}
+                          style={{ fontSize: 12 }}
+                        >
+                          📋 Copy Link
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-d btn-sm"
+                          onClick={() => handleRemoveCertificate(cert.certId)}
+                          disabled={isRemoving}
+                          style={{
+                            fontSize: 12,
+                            background: "rgba(239, 68, 68, 0.12)",
+                            color: "#f87171",
+                            border: "1px solid rgba(239, 68, 68, 0.3)",
+                            padding: "5px 10px"
+                          }}
+                          title="Remove certificate card"
+                        >
+                          {isRemoving ? "Removing..." : "✕ Remove"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 

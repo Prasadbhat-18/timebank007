@@ -169,13 +169,14 @@ export async function renderCertificatePdf(cert, student, college, baseUrl = pro
   doc.fillColor("#64748b")
     .fontSize(11)
     .font("Helvetica")
-    .text("This is to officially certify that", 0, 96, { align: "center" });
+    .text("This is to officially certify that", 0, 96, { width: width, align: "center" });
 
   // Student Name
   doc.fillColor("#0f172a")
     .fontSize(22)
     .font("Helvetica-Bold")
     .text(student?.name || "Distinguished Student", 0, 114, {
+      width: width,
       align: "center",
     });
 
@@ -188,7 +189,7 @@ export async function renderCertificatePdf(cert, student, college, baseUrl = pro
       `of ${collegeName} (${student?.email || "Student Account"})`,
       0,
       142,
-      { align: "center" }
+      { width: width, align: "center" }
     );
 
   doc.fillColor("#334155")
@@ -198,7 +199,7 @@ export async function renderCertificatePdf(cert, student, college, baseUrl = pro
       "has successfully completed and attained official institution accreditation for the recognized activity:",
       0,
       162,
-      { align: "center" }
+      { width: width, align: "center" }
     );
 
   // Uploaded Activity Showcase Box
@@ -322,11 +323,10 @@ export async function renderCertificatePdf(cert, student, college, baseUrl = pro
     .font("Helvetica")
     .text("Instant On-Chain Audit", qrX - 10, qrY + 103, { width: 108, align: "center" });
 
-  doc.end();
-
   return new Promise((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+    doc.end();
   });
 }
 

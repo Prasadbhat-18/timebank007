@@ -257,15 +257,14 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
                     <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
                       Scan with mobile camera to check cryptographic proof and instant authenticity.
                     </div>
-                    <a
-                      href={api.getCertificateDownloadUrl(result.certId)}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => api.downloadCertificatePdf(result.certId)}
                       className="btn btn-p btn-sm"
-                      style={{ fontSize: 11, padding: "3px 10px", marginTop: 6, display: "inline-flex", textDecoration: "none" }}
+                      style={{ fontSize: 11, padding: "3px 10px", marginTop: 6, display: "inline-flex", alignItems: "center", gap: 4 }}
                     >
                       📄 Download Official PDF
-                    </a>
+                    </button>
                   </div>
                 </div>
               )}

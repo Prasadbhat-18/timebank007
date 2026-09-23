@@ -1147,7 +1147,7 @@ function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
               </span>
 
               {/* Real-time Notification Bell */}
-              <NotificationBell user={user} notify={notify} />
+              <NotificationBell user={user} notify={notify} onNavigate={nav} setModal={setModal} />
 
               <div className="nav-av" onClick={() => nav(user.role?.includes("Admin") || user.role === "super_admin" || user.role === "institute_admin" ? (user.role === "websiteAdmin" || user.role === "super_admin" ? "website-admin" : "college-admin") : "profile")}>
                 {user.avatar}
@@ -1196,7 +1196,7 @@ function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
             <span>{user.credits} cr</span>
           </span>
         )}
-        {user && <NotificationBell user={user} notify={notify} />}
+        {user && <NotificationBell user={user} notify={notify} onNavigate={nav} setModal={setModal} />}
         {!user && (
           <button className="nav-cta" style={{ padding: "6px 14px", fontSize: "12px" }} onClick={() => nav("auth")}>
             Login
@@ -4117,15 +4117,14 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
                   {a.txHash && <a href={chain.txLink(a.txHash)} target="_blank" rel="noreferrer" style={{ color: "var(--em)" }}>Polygonscan ↗</a>}
                   {(a.verified || a.status === "approved") && a.certId && (
                     <div style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto" }}>
-                      <a
-                        href={api.getCertificateDownloadUrl(a.certId)}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => api.downloadCertificatePdf(a.certId)}
                         className="btn btn-p btn-sm"
-                        style={{ fontSize: 11.5, padding: "3px 8px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                        style={{ fontSize: 11.5, padding: "3px 8px", display: "inline-flex", alignItems: "center", gap: 4 }}
                       >
                         📜 Download Certificate
-                      </a>
+                      </button>
                       <button
                         type="button"
                         className="btn btn-o btn-sm"

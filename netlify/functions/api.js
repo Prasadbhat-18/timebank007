@@ -67,7 +67,9 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-const serverlessHandler = serverless(app);
+const serverlessHandler = serverless(app, {
+  binary: ["application/pdf", "image/*", "application/octet-stream"],
+});
 
 export const handler = async (event, context) => {
   // CRITICAL: Tells AWS Lambda not to wait for open Mongoose TCP sockets before freezing
