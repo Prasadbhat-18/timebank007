@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import FaceVerification from '../FaceVerification.jsx';
 import IDCardUpload from './IDCardUpload.jsx';
 import * as api from '../api.js';
+import { getDeviceFingerprint } from '../fingerprint.js';
 import './wizard/registrationTheme.css';
 
 export default function RegistrationWizard({
@@ -176,12 +177,7 @@ export default function RegistrationWizard({
     setOtpError('');
     setVerifyingOtp(true);
     try {
-      let deviceFingerprint = null;
-      try {
-        const FP = (await import('@fingerprintjs/fingerprintjs')).default;
-        const fp = await FP.load();
-        deviceFingerprint = (await fp.get()).visitorId;
-      } catch {}
+      const deviceFingerprint = await getDeviceFingerprint();
 
       const res = await api.verifyOtp(form.email, otp, deviceFingerprint, null, 'register');
       if (res?.verified || res?.success) {
@@ -239,12 +235,7 @@ export default function RegistrationWizard({
     setSubmitError('');
 
     try {
-      let deviceFingerprint = null;
-      try {
-        const FP = (await import('@fingerprintjs/fingerprintjs')).default;
-        const fp = await FP.load();
-        deviceFingerprint = (await fp.get()).visitorId;
-      } catch {}
+      const deviceFingerprint = await getDeviceFingerprint();
 
       const payload = {
         name: form.name.trim(),

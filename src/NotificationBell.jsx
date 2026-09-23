@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 import { motion, AnimatePresence } from "framer-motion";
 import * as api from "./api.js";
+import VerifyCertificate from "./VerifyCertificate.jsx";
 import {
   isPushSupported,
   getPushPermission,
@@ -211,9 +212,7 @@ export default function NotificationBell({ user, notify, onNavigate, setModal })
     if (type === "badge" || type === "aicte_reward" || n.title?.includes("AICTE") || data.certId) {
       onNavigate("aicte");
       if (data.certId && setModal) {
-        import("./VerifyCertificate.jsx").then(({ default: VerifyCert }) => {
-          setModal(<VerifyCert certId={data.certId} onClose={() => setModal(null)} />);
-        });
+        setModal(<VerifyCertificate certId={data.certId} onClose={() => setModal(null)} />);
       }
       return;
     }
