@@ -4111,10 +4111,31 @@ function AICTEPage({ user, notify, setModal, refreshUser }) {
                       rel="noreferrer"
                       style={{ color: "var(--blue)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }}
                     >
-                      📄 View Certificate
+                      📎 Uploaded Proof
                     </a>
                   )}
                   {a.txHash && <a href={chain.txLink(a.txHash)} target="_blank" rel="noreferrer" style={{ color: "var(--em)" }}>Polygonscan ↗</a>}
+                  {(a.verified || a.status === "approved") && a.certId && (
+                    <div style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto" }}>
+                      <a
+                        href={api.getCertificateDownloadUrl(a.certId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-p btn-sm"
+                        style={{ fontSize: 11.5, padding: "3px 8px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                      >
+                        📜 Download Certificate
+                      </a>
+                      <button
+                        type="button"
+                        className="btn btn-o btn-sm"
+                        onClick={() => setModal(<VerifyCertificate certId={a.certId} onClose={() => setModal(null)} />)}
+                        style={{ fontSize: 11.5, padding: "3px 8px" }}
+                      >
+                        🔍 Verify
+                      </button>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -5714,6 +5735,10 @@ export function AdminIssueCertificateModal({ adminUser, initialStudent, users, c
     return d.toISOString().split("T")[0];
   });
   const [periodEnd, setPeriodEnd] = useState(() => new Date().toISOString().split("T")[0]);
+  const [studentActivities, setStudentActivities] = useState([]);
+  const [selectedActivityId, setSelectedActivityId] = useState("");
+  const [activityTitle, setActivityTitle] = useState("");
+  const [activityPoints, setActivityPoints] = useState("");
   const [issuing, setIssuing] = useState(false);
 
   // Filter students from admin's college
@@ -5723,12 +5748,40 @@ export function AdminIssueCertificateModal({ adminUser, initialStudent, users, c
       (u.college && adminUser?.college && u.college.toLowerCase().trim() === adminUser.college.toLowerCase().trim()))
   );
 
+  useEffect(() => {
+    if (studentId) {
+      api.fetchUserAicte(studentId).then(acts => {
+        const approved = (acts || []).filter(a => a.verified || a.status === "approved");
+        setStudentActivities(approved);
+        if (approved.length > 0) {
+          setSelectedActivityId(approved[0]._id);
+          setActivityTitle(approved[0].title);
+          setActivityPoints(approved[0].pts);
+        }
+      }).catch(() => setStudentActivities([]));
+    } else {
+      setStudentActivities([]);
+    }
+  }, [studentId]);
+
+  const onSelectActivity = (actId) => {
+    setSelectedActivityId(actId);
+    const act = studentActivities.find(a => a._id === actId);
+    if (act) {
+      setActivityTitle(act.title);
+      setActivityPoints(act.pts);
+    }
+  };
+
   const handleIssue = async () => {
     if (!studentId) return notify("Please select a student", "error");
-    if (!periodStart || !periodEnd) return notify("Please select start and end dates", "error");
     setIssuing(true);
     try {
-      const res = await api.issueAicteCertificate(studentId, periodStart, periodEnd);
+      const res = await api.issueAicteCertificate(studentId, periodStart, periodEnd, {
+        activityId: selectedActivityId || undefined,
+        activityTitle: activityTitle || undefined,
+        pts: activityPoints ? Number(activityPoints) : undefined,
+      });
       notify(res.message || "AICTE Accredited Certificate cryptographically anchored & issued! 📜", "success");
       if (close) close();
     } catch (e) {
@@ -5759,6 +5812,40 @@ export function AdminIssueCertificateModal({ adminUser, initialStudent, users, c
           </select>
         )}
       </div>
+
+      {studentActivities.length > 0 && (
+        <div className="field">
+          <label>Select Uploaded Activity</label>
+          <select className="fi" value={selectedActivityId} onChange={(e) => onSelectActivity(e.target.value)}>
+            {studentActivities.map(a => (
+              <option key={a._id} value={a._id}>{a.title} (+{a.pts} pts)</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="field">
+        <label>Activity Title</label>
+        <input
+          type="text"
+          className="fi"
+          placeholder="e.g. Smart India Hackathon / Technical Workshop"
+          value={activityTitle}
+          onChange={(e) => setActivityTitle(e.target.value)}
+        />
+      </div>
+
+      <div className="field">
+        <label>Awarded AICTE Points</label>
+        <input
+          type="number"
+          className="fi"
+          placeholder="e.g. 20"
+          value={activityPoints}
+          onChange={(e) => setActivityPoints(e.target.value)}
+        />
+      </div>
+
       <div className="field">
         <label>Assessment Period Start</label>
         <input type="date" className="fi" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />

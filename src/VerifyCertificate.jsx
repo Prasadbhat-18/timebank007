@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import QRCode from "qrcode";
 import * as api from "./api.js";
 
 export default function VerifyCertificate({ certId: propCertId, onClose }) {
@@ -8,6 +9,7 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
 
   const checkCertificate = async (idToCheck) => {
     if (!idToCheck || !idToCheck.trim()) return;
@@ -34,6 +36,19 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
       checkCertificate(propCertId);
     }
   }, [propCertId]);
+
+  useEffect(() => {
+    if (result?.certId) {
+      const verifyUrl = `${window.location.origin}/#verify/${result.certId}`;
+      QRCode.toDataURL(verifyUrl, {
+        margin: 1,
+        width: 140,
+        color: { dark: "#080b12", light: "#ffffff" },
+      })
+        .then(setQrDataUrl)
+        .catch(() => {});
+    }
+  }, [result?.certId]);
 
   return (
     <div
@@ -140,7 +155,7 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
                 border: "1px solid rgba(16, 185, 129, 0.3)",
                 borderRadius: 12,
                 padding: "1.25rem",
-                marginBottom: "1.25rem",
+                marginBottom: "1rem",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -164,30 +179,96 @@ export default function VerifyCertificate({ certId: propCertId, onClose }) {
                 </div>
               )}
 
+              {/* Uploaded Activity Claim */}
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 8,
+                  background: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: 10,
+                  padding: "12px 14px",
                   marginTop: "1rem",
-                  paddingTop: "0.75rem",
-                  borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                }}
+              >
+                <div style={{ fontSize: 10, color: "var(--em)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.5px" }}>
+                  Verified AICTE Activity
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#fff", marginTop: 4 }}>
+                  {result.activityTitle || "Recognized Academic Activity"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
+                  Category: <strong>{result.activityType || "Technical Activity"}</strong> · Organizer: <strong>{result.organizer || result.college}</strong>
+                </div>
+                {result.activityDate && (
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                    Date Conducted: {result.activityDate}
+                  </div>
+                )}
+              </div>
+
+              {/* Awarded AICTE Points Highlight Plaque */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%)",
+                  border: "1.5px solid rgba(16, 185, 129, 0.4)",
+                  borderRadius: 10,
+                  padding: "1rem",
+                  marginTop: "0.75rem",
                   textAlign: "center",
                 }}
               >
-                <div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>Points</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--em)" }}>{result.activityPoints}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "var(--em)", letterSpacing: "0.5px" }}>
+                  +{result.activityPoints} AICTE Points Awarded
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>Hours</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#60a5fa" }}>{result.totalHours}h</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>Exchanges</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: "#c084fc" }}>{result.exchangeCount}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 4 }}>
+                  Official Accreditation Endorsed by {result.college}
                 </div>
               </div>
+
+              {/* Embedded QR Code Verification */}
+              {qrDataUrl && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
+                    background: "rgba(0, 0, 0, 0.25)",
+                    border: "1px solid rgba(255, 255, 255, 0.08)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    marginTop: "0.75rem",
+                  }}
+                >
+                  <img
+                    src={qrDataUrl}
+                    alt="Verification QR Code"
+                    style={{
+                      width: 72,
+                      height: 72,
+                      borderRadius: 8,
+                      background: "#fff",
+                      padding: 3,
+                      border: "1px solid rgba(16, 185, 129, 0.5)",
+                    }}
+                  />
+                  <div style={{ textAlign: "left", flex: 1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#fff" }}>
+                      Scan QR to Verify Credential
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                      Scan with mobile camera to check cryptographic proof and instant authenticity.
+                    </div>
+                    <a
+                      href={api.getCertificateDownloadUrl(result.certId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-p btn-sm"
+                      style={{ fontSize: 11, padding: "3px 10px", marginTop: 6, display: "inline-flex", textDecoration: "none" }}
+                    >
+                      📄 Download Official PDF
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Technical Verification Meta */}

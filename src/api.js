@@ -176,8 +176,8 @@ export const rejectAicte = (id, feedback = "") =>
   req(`/aicte/${id}/reject`, { method: "POST", body: JSON.stringify({ feedback }) });
 export const fetchAicteActivityPoints = () =>
   req("/aicte/activity-points");
-export const issueAicteCertificate = (studentId, periodStart, periodEnd) =>
-  req("/aicte/certificate/issue", { method: "POST", body: JSON.stringify({ studentId, periodStart, periodEnd }) });
+export const issueAicteCertificate = (studentId, periodStart, periodEnd, extra = {}) =>
+  req("/aicte/certificate/issue", { method: "POST", body: JSON.stringify({ studentId, periodStart, periodEnd, ...extra }) });
 export const requestAicteCertificate = (periodStart, periodEnd) =>
   req("/aicte/certificate/request", { method: "POST", body: JSON.stringify({ periodStart, periodEnd }) });
 export const getCertificateDownloadUrl = (certId) =>

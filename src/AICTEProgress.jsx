@@ -209,15 +209,16 @@ export default function AICTEProgress({ user, notify, onOpenVerify }) {
                   }}
                 >
                   <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: "#fff" }}>
-                        AICTE Certificate · {cert.activityPoints} Points
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 14.5, color: "#fff" }}>
+                        {cert.activityTitle || "Recognized AICTE Activity"}
                       </span>
-                      <span className="tag tg" style={{ fontSize: 10 }}>✓ Institution Admin Verified</span>
+                      <span className="tag tg" style={{ fontSize: 10 }}>+{cert.activityPoints} AICTE Points</span>
+                      <span className="tag tp" style={{ fontSize: 10 }}>✓ Verified Credential</span>
                     </div>
 
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
-                      Period: {new Date(cert.periodStart).toLocaleDateString()} – {new Date(cert.periodEnd).toLocaleDateString()} · {cert.totalHours} hrs · {cert.exchangeCount} exchanges
+                      Category: <strong>{cert.activityType || "Technical Activity"}</strong> · Organizer: <strong>{cert.organizer || "Institution"}</strong> {cert.activityDate ? `· Date: ${cert.activityDate}` : ""}
                     </div>
 
                     <div style={{ fontSize: 10.5, fontFamily: "monospace", color: "var(--text-muted)", marginTop: 4 }}>

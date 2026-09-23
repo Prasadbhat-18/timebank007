@@ -14,7 +14,7 @@ import {
   FACE_MATCH_THRESHOLD, FACE_LOGIN_VERIFY_THRESHOLD,
 } from "./fraudService.js";
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
-import { issueCertificate, renderCertificatePdf, computeHash } from "./certificateService.js";
+import { issueCertificate, renderCertificatePdf, computeHash, computeLegacyHash } from "./certificateService.js";
 import {
   sendOtpEmail,
   sendStudentApprovalDecisionEmail,
@@ -3488,9 +3488,9 @@ r.get("/aicte/activity-points", requireAuth, requireRole("student"), async (req,
 // Issue Verifiable AICTE Certificate (Admin Only: College Admin / Super Admin)
 r.post("/aicte/certificate/issue", requireAuth, requireRole(["collegeAdmin", "institute_admin", "websiteAdmin", "super_admin"]), async (req, res) => {
   try {
-    const { studentId, periodStart, periodEnd } = req.body;
-    if (!studentId || !periodStart || !periodEnd) {
-      return res.status(400).json({ error: "Please provide studentId, periodStart, and periodEnd dates." });
+    const { studentId, activityId, activityTitle, activityType, organizer, activityDate, pts, periodStart, periodEnd } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ error: "Please provide studentId." });
     }
 
     const student = await User.findById(studentId);
@@ -3504,44 +3504,37 @@ r.post("/aicte/certificate/issue", requireAuth, requireRole(["collegeAdmin", "in
       }
     }
 
-    const startDate = new Date(periodStart);
-    const endDate = new Date(periodEnd);
+    const startDate = periodStart ? new Date(periodStart) : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+    const endDate = periodEnd ? new Date(periodEnd) : new Date();
     endDate.setHours(23, 59, 59, 999);
 
-    const completedBookings = await Booking.find({
-      $or: [{ providerId: student._id }, { requesterId: student._id }],
-      status: "completed",
-      createdAt: { $gte: startDate, $lte: endDate },
-    });
+    // Resolve target uploaded activity if provided or find the latest approved activity
+    let targetActivity = null;
+    if (activityId) {
+      targetActivity = await Aicte.findById(activityId);
+    } else {
+      targetActivity = await Aicte.findOne({
+        userId: student._id,
+        verified: true,
+        status: "approved",
+      }).sort({ reviewedAt: -1, createdAt: -1 });
+    }
 
-    const completedTxns = await Transaction.find({
-      $or: [{ fromId: String(student._id) }, { toId: String(student._id) }],
-      type: "service_completed",
-      createdAt: { $gte: startDate, $lte: endDate },
-    });
-
-    const bookingHours = completedBookings.reduce((sum, b) => sum + (b.hours || 0), 0);
-    const totalHours = bookingHours > 0 ? bookingHours : completedTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
-    const exchangeCount = completedBookings.length > 0 ? completedBookings.length : completedTxns.length;
-
-    // Fetch verified academic activities in the period (strictly approved by institution admin)
-    const manualAicte = await Aicte.find({
-      userId: student._id,
-      verified: true,
-      status: "approved",
-      createdAt: { $gte: startDate, $lte: endDate },
-    });
-    const manualPts = manualAicte.reduce((sum, a) => sum + (a.pts || 0), 0);
-    const activityPoints = totalHours + manualPts;
+    const finalActivityTitle = activityTitle || targetActivity?.title || "Technical Activity & Campus Innovation";
+    const finalActivityType = activityType || targetActivity?.type || "Technical / Co-Curricular";
+    const finalOrganizer = organizer || targetActivity?.organizer || (req.user.college || student.college || "AICTE Recognized Institution");
+    const finalActivityDate = activityDate || targetActivity?.date || new Date().toISOString().split("T")[0];
+    const finalActivityPoints = pts !== undefined ? Number(pts) : (targetActivity?.pts || 10);
+    const finalCredits = targetActivity?.credits || 0;
 
     // Anchor on Polygon blockchain
-    const { txHash, blockNumber } = await generateAnchoredTx("MINT_CERT", student.wallet || student._id.toString(), "0x000000000000000000000000000000000000CERT", activityPoints);
+    const { txHash, blockNumber } = await generateAnchoredTx("MINT_CERT", student.wallet || student._id.toString(), "0x000000000000000000000000000000000000CERT", finalActivityPoints);
     await recordOnBlockchainLedger({
       blockNumber,
       txHash,
       from: student.wallet || student._id.toString(),
       to: "0x000000000000000000000000000000000000CERT",
-      amount: activityPoints,
+      amount: finalActivityPoints,
       type: "MINT_CERT",
       isStateProof: true,
     });
@@ -3549,20 +3542,31 @@ r.post("/aicte/certificate/issue", requireAuth, requireRole(["collegeAdmin", "in
     const cert = await issueCertificate({
       userId: student._id,
       collegeId: student.collegeId || student.college || req.user.college,
-      activityPoints,
-      totalHours,
-      exchangeCount,
+      activityId: targetActivity?._id || null,
+      activityTitle: finalActivityTitle,
+      activityType: finalActivityType,
+      organizer: finalOrganizer,
+      activityDate: finalActivityDate,
+      activityPoints: finalActivityPoints,
+      creditsEarned: finalCredits,
+      totalHours: 0,
+      exchangeCount: 0,
       periodStart: startDate,
       periodEnd: endDate,
       txHash,
       blockNumber,
     });
 
+    if (targetActivity && !targetActivity.certId) {
+      targetActivity.certId = cert.certId;
+      await targetActivity.save();
+    }
+
     await pushNotification(student._id, {
       type: "badge",
       title: "AICTE Accredited Certificate Issued! 📜",
-      body: `Your institution admin at ${req.user.college || "your college"} has approved and issued your certificate for ${activityPoints} points anchored on Polygon Amoy.`,
-      data: { certId: cert.certId, activityPoints, txHash },
+      body: `Your institution admin at ${req.user.college || "your college"} has approved and issued your certificate for "${finalActivityTitle}" (+${finalActivityPoints} pts) anchored on Polygon Amoy.`,
+      data: { certId: cert.certId, activityPoints: finalActivityPoints, txHash },
     });
 
     res.status(201).json({
@@ -3676,6 +3680,15 @@ r.get("/aicte/verify/:certId", async (req, res) => {
     const recomputed = computeHash({
       userId: cert.user,
       collegeId: cert.college,
+      activityTitle: cert.activityTitle,
+      activityType: cert.activityType,
+      organizer: cert.organizer,
+      activityPoints: cert.activityPoints,
+    });
+
+    const recomputedLegacy = computeLegacyHash({
+      userId: cert.user,
+      collegeId: cert.college,
       activityPoints: cert.activityPoints,
       totalHours: cert.totalHours,
       exchangeCount: cert.exchangeCount,
@@ -3683,7 +3696,7 @@ r.get("/aicte/verify/:certId", async (req, res) => {
       periodEnd: cert.periodEnd,
     });
 
-    const isValid = recomputed === cert.integrityHash;
+    const isValid = (recomputed === cert.integrityHash) || (recomputedLegacy === cert.integrityHash);
 
     res.json({
       valid: isValid,
@@ -3691,9 +3704,14 @@ r.get("/aicte/verify/:certId", async (req, res) => {
       studentName: student?.name || "Student",
       studentEmail: student?.email || "",
       college: collegeName,
+      activityTitle: cert.activityTitle || "Recognized AICTE Activity",
+      activityType: cert.activityType || "Technical Activity",
+      organizer: cert.organizer || "AICTE Recognized Institution",
+      activityDate: cert.activityDate || "",
       activityPoints: cert.activityPoints,
-      totalHours: cert.totalHours,
-      exchangeCount: cert.exchangeCount,
+      creditsEarned: cert.creditsEarned || 0,
+      totalHours: cert.totalHours || 0,
+      exchangeCount: cert.exchangeCount || 0,
       period: {
         start: cert.periodStart,
         end: cert.periodEnd,
@@ -4173,6 +4191,30 @@ r.post("/aicte/:id/verify", requireAuth, requireRole(["websiteAdmin", "collegeAd
     activity.blockNumber = finalBlockNumber;
     activity.pts = finalPts;
     activity.credits = finalCredits;
+
+    // Automatically issue and link the official AICTE certificate for this verified activity
+    try {
+      let existingCert = await Certificate.findOne({ activityId: activity._id });
+      if (!existingCert) {
+        existingCert = await issueCertificate({
+          userId: activity.userId,
+          collegeId: user.collegeId || user.college || req.user.college,
+          activityId: activity._id,
+          activityTitle: activity.title,
+          activityType: activity.type,
+          organizer: activity.organizer,
+          activityDate: activity.date,
+          activityPoints: finalPts,
+          creditsEarned: finalCredits,
+          txHash: finalTxHash,
+          blockNumber: finalBlockNumber,
+        });
+      }
+      activity.certId = existingCert.certId;
+    } catch (certErr) {
+      console.warn("[AICTE] Auto certificate issuance warning:", certErr.message);
+    }
+
     await activity.save();
 
     // Add credits + points to user
