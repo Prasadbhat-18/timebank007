@@ -27,6 +27,12 @@ function autoBackendPlugin() {
 
 export default defineConfig({
   plugins: [react(), autoBackendPlugin()],
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom'],
+  },
   server: {
     proxy: {
       '/api': {
