@@ -854,7 +854,7 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh", position: "relative" }}>
       {(page === "landing" || page === "auth") && <BlockchainBg isBlurred={page === "auth"} />}
-      <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} notify={notify} />
+      <Nav user={user} page={page} nav={nav} clockAngle={clockAngle} doLogout={doLogout} notify={notify} setModal={handleSetModal} />
       <NotifStack notifs={notifs} />
       
       {/* Public QR Certificate Verification Modal */}
@@ -1056,7 +1056,7 @@ function PendingApprovalScreen({ userId, onLogout }) {
 }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
-function Nav({ user, page, nav, clockAngle, doLogout, notify }) {
+function Nav({ user, page, nav, clockAngle, doLogout, notify, setModal }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
