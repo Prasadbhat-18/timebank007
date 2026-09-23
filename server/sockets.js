@@ -11,7 +11,7 @@ let ioInstance = null;
 export function initSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: ["https://timebank017.netlify.app", "http://localhost:5173", "http://localhost:4173", "http://localhost:3000", "*"],
+      origin: ["https://timebank007.netlify.app", "http://localhost:5173", "http://localhost:4173", "http://localhost:3000", "*"],
       methods: ["GET", "POST", "PUT", "DELETE"],
       credentials: true,
     },

@@ -98,7 +98,7 @@ export async function issueCertificate(fields) {
 /**
  * Generates an official PDF certificate with embedded QR code
  */
-export async function renderCertificatePdf(cert, student, college, baseUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app") {
+export async function renderCertificatePdf(cert, student, college, baseUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app") {
   const verifyUrl = `${baseUrl}/#verify/${cert.certId}`;
   
   // Generate QR Code as Data URI

@@ -166,7 +166,7 @@ export async function dispatchEmail({ to, subject, text, html }) {
  * Dispatches OTP email to user's inbox via configured SMTP (Gmail)
  */
 export async function sendOtpEmail({ to, code, magicToken, collegeName = "TimeBank", type = "login" }) {
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app";
   const magicLink = `${clientUrl}/#magic-login/${magicToken}`;
   const subject = "Your TimeBank Verification Code";
 
@@ -253,7 +253,7 @@ export async function sendStudentApprovalDecisionEmail({ to, studentName = "Stud
     console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed student approval email for test/dummy address: ${to}\n`);
     return { success: true, deliveryType: "suppressed_test" };
   }
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app";
   const isApproved = decision === "approved";
 
   const subject = isApproved
@@ -387,7 +387,7 @@ export async function sendCollegeAdminPendingStudentEmail({ to, adminName = "Adm
     console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed pending student email for synthetic/test student: ${studentEmail}\n`);
     return { success: true, deliveryType: "suppressed_test" };
   }
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app";
   const subject = `🎓 New Student Verification Request: ${studentName} - TimeBank`;
 
   const textContent = `Hello ${adminName},
@@ -476,7 +476,7 @@ export async function sendCollegeAdminPendingAicteEmail({ to, adminName = "Admin
     console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed pending AICTE email for synthetic/test student: ${studentEmail}\n`);
     return { success: true, deliveryType: "suppressed_test" };
   }
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app";
   const subject = `🎓 New AICTE Activity Claim: ${studentName} (${activityTitle}) - TimeBank`;
 
   const textContent = `Hello ${adminName},
@@ -587,7 +587,7 @@ export async function sendStudentAicteDecisionEmail({ to, studentName, activityT
     console.log(`\n🚫 [NOTIFICATION SUPPRESSED] Suppressed AICTE decision email for test/dummy student: ${to}\n`);
     return { success: true, deliveryType: "suppressed_test" };
   }
-  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || process.env.URL || "https://timebank007.netlify.app";
   const isApproved = decision === "approved";
   const subject = isApproved 
     ? `🎉 AICTE Activity Approved: ${activityTitle} (+${pts} pts, +${credits} cr) - TimeBank`
@@ -713,7 +713,7 @@ export async function sendEmergencySosEmail({
   contacts = [],
 }) {
   const subject = `🚨 URGENT: Emergency SOS Alert Triggered for ${userName}`;
-  const clientUrl = process.env.CLIENT_URL || "https://timebank017.netlify.app";
+  const clientUrl = process.env.CLIENT_URL || "https://timebank007.netlify.app";
 
   const textContent = `
 EMERGENCY SOS ALERT

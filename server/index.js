@@ -54,7 +54,7 @@ app.get("/", (_req, res) => {
       <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); padding: 3rem; border-radius: 12px; max-width: 480px;">
         <h1 style="color: #00c27a; margin-bottom: 1rem; font-size: 28px; font-family: system-ui, sans-serif;">TimeBank API Server</h1>
         <p style="color: #94a3b8; margin-bottom: 2rem; font-size: 15px; line-height: 1.6;">The API backend is running successfully with Socket.io real-time support.</p>
-        <a href="${process.env.CLIENT_URL || 'https://timebank017.netlify.app'}" style="display: inline-block; background: #00c27a; color: #080b12; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; transition: all 0.2s;">Go to TimeBank Web App</a>
+        <a href="${process.env.CLIENT_URL || 'https://timebank007.netlify.app'}" style="display: inline-block; background: #00c27a; color: #080b12; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px; transition: all 0.2s;">Go to TimeBank Web App</a>
       </div>
     </div>
   `);
