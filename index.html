@@ -19,6 +19,39 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>TimeBank — Peer-to-Peer Skill Exchange</title>
+    <script>
+      // Automatic self-healing: if an old/stale service worker cache served HTML for a JS chunk,
+      // or if a dynamically imported chunk fails to load, wipe stale caches and perform a clean reload.
+      window.addEventListener('error', function (e) {
+        var msg = (e && (e.message || (e.error && e.error.message))) || '';
+        var isScript = e.target && e.target.tagName === 'SCRIPT';
+        if (msg.includes("Unexpected token '<'") || msg.includes("Failed to fetch dynamically imported module") || isScript) {
+          if (!sessionStorage.getItem('tb_cache_reloaded')) {
+            sessionStorage.setItem('tb_cache_reloaded', '1');
+            console.warn('[TimeBank Self-Healing] Stale asset detected. Clearing cache and reloading...');
+            if ('caches' in window) {
+              caches.keys().then(function (names) {
+                return Promise.all(names.map(function (n) { return caches.delete(n); }));
+              }).then(function () {
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then(function (regs) {
+                    regs.forEach(function (r) { r.unregister(); });
+                    window.location.reload();
+                  });
+                } else {
+                  window.location.reload();
+                }
+              }).catch(function () { window.location.reload(); });
+            } else {
+              window.location.reload();
+            }
+          }
+        }
+      }, true);
+      window.addEventListener('load', function () {
+        setTimeout(function () { sessionStorage.removeItem('tb_cache_reloaded'); }, 3000);
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

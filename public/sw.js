@@ -1,5 +1,5 @@
 // ─── public/sw.js — TimeBank Service Worker & Push Notification Handler ───────
-const CACHE_NAME = "timebank-pwa-v4";
+const CACHE_NAME = "timebank-pwa-v5";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -123,9 +123,23 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
+        // Discard any corrupted cache entry where HTML was mistakenly cached for a JS/CSS file
+        if (cachedResponse) {
+          const contentType = cachedResponse.headers.get("content-type") || "";
+          if ((url.pathname.endsWith(".js") || url.pathname.endsWith(".css")) && contentType.includes("text/html")) {
+            caches.open(CACHE_NAME).then((cache) => cache.delete(event.request));
+            cachedResponse = null;
+          }
+        }
+
         const fetchPromise = fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
+              const contentType = networkResponse.headers.get("content-type") || "";
+              // CRITICAL: NEVER cache HTML responses for JS or CSS files (which occurs during Netlify SPA fallback)
+              if ((url.pathname.endsWith(".js") || url.pathname.endsWith(".css")) && contentType.includes("text/html")) {
+                return networkResponse;
+              }
               const responseToCache = networkResponse.clone();
               caches.open(CACHE_NAME).then((cache) => {
                 cache.put(event.request, responseToCache);

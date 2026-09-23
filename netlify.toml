@@ -24,6 +24,12 @@
   status = 200
   force = true
 
+# Prevent missing assets from returning index.html 200 (prevents MIME type script errors and cache corruption)
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 404
+
 # Single Page Application fallback for React client-side routing
 [[redirects]]
   from = "/*"
