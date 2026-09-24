@@ -1057,14 +1057,16 @@ r.post("/auth/check-face", async (req, res) => {
     for (const candidate of candidates) {
       if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
       const dist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-      if (dist < bestDistance) {
+      const cosSim = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
+      const isMatch = dist <= FACE_MATCH_THRESHOLD || (cosSim >= 0.85 && dist <= 0.58);
+      if (isMatch && dist < bestDistance) {
         bestDistance = dist;
         bestMatch = candidate;
       }
     }
 
-    // Biometric match threshold (distance <= FACE_MATCH_THRESHOLD = 0.36)
-    if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
+    // Biometric match threshold (strictly blocks duplicate / clone accounts)
+    if (bestMatch) {
       // Flag existing user profile & log fraud review for multi-accounting attempt
       try {
         if (!bestMatch.flaggedReasons) bestMatch.flaggedReasons = [];
@@ -1091,6 +1093,7 @@ r.post("/auth/check-face", async (req, res) => {
       return res.json({
         duplicate: true,
         matchedEmail: bestMatch.email,
+        matchedName: bestMatch.name,
         primaryEmail: bestMatch.email,
         distance: bestDistance,
         message: `This face matches an existing TimeBank profile (${bestMatch.email}). Multi-accounting is strictly prohibited.`,

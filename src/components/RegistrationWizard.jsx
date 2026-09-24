@@ -205,7 +205,7 @@ export default function RegistrationWizard({
         setDuplicateMatch({
           matchedEmail: checkRes.matchedEmail,
           matchedName: checkRes.matchedName,
-          message: checkRes.message,
+          message: checkRes.message || `This face matches an existing TimeBank profile (${checkRes.matchedEmail}). Multi-accounting is prohibited.`,
         });
         setFaceDescriptor(null);
       } else {
@@ -214,7 +214,16 @@ export default function RegistrationWizard({
       }
     } catch (err) {
       console.error('Biometric face check error:', err);
-      setFaceDescriptor(desc);
+      setFaceDescriptor(null);
+      if (err.duplicateFace || err.code === 'DUPLICATE_FACE' || err.data?.duplicate) {
+        setDuplicateMatch({
+          matchedEmail: err.matchedEmail || err.data?.matchedEmail || 'an existing account',
+          matchedName: err.matchedName || err.data?.matchedName || '',
+          message: err.message || 'Face scan matches an existing account. Clone/duplicate accounts are strictly blocked.',
+        });
+      } else {
+        setSubmitError(err.message || 'Biometric verification check failed. Please retry.');
+      }
     } finally {
       setFaceChecking(false);
     }
@@ -222,8 +231,14 @@ export default function RegistrationWizard({
 
   // ── Final Registration Submission ───────────────────────────────────────
   const submit = useCallback(async () => {
+    if (duplicateMatch) {
+      setSubmitError(`Account creation blocked: Face matches an existing profile (${duplicateMatch.matchedEmail}).`);
+      goToStep(isStudent ? 4 : 3);
+      return;
+    }
     if (!faceDescriptor) {
       setSubmitError('Live biometric face scan is required to enroll your profile.');
+      goToStep(isStudent ? 4 : 3);
       return;
     }
     if (!otp) {
@@ -276,21 +291,22 @@ export default function RegistrationWizard({
         goToStep(totalSteps);
       }
     } catch (e) {
-      if (e.code === 'DUPLICATE_FACE' || e.duplicateFace || e.message?.includes('face matches an existing account')) {
-        const matched = e.matchedEmail || e.data?.matchedEmail;
+      if (e.code === 'DUPLICATE_FACE' || e.duplicateFace || e.message?.includes('face matches an existing account') || e.message?.includes('already enrolled')) {
+        const matched = e.matchedEmail || e.data?.matchedEmail || e.primaryEmail;
         setDuplicateMatch({
           matchedEmail: matched || 'your original registered email',
           matchedName: e.matchedName || e.data?.matchedName || '',
-          message: e.message || 'Face scan matches an existing account.',
+          message: e.message || 'Face scan matches an existing account. Multi-accounting is strictly prohibited.',
         });
         setFaceDescriptor(null);
+        goToStep(isStudent ? 4 : 3);
       } else {
         setSubmitError(e.message || 'An unexpected error occurred during registration. Please try again.');
       }
     } finally {
       setSubmitting(false);
     }
-  }, [faceDescriptor, otp, form, isStudent, idCardBase64, onComplete, totalSteps]);
+  }, [faceDescriptor, duplicateMatch, otp, form, isStudent, idCardBase64, onComplete, totalSteps, goToStep]);
 
   // Stepper labels
   const stepLabels = isStudent

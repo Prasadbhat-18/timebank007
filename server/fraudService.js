@@ -2,8 +2,8 @@
 import crypto from "crypto";
 import { User, Transaction, Booking } from "./models.js";
 
-export const FACE_MATCH_THRESHOLD = 0.45; // Strict 1:N duplicate detection threshold (dist <= 0.45 = duplicate)
-export const FACE_LOGIN_VERIFY_THRESHOLD = 0.55; // 1:1 account owner verification during login (dist <= 0.55 = match owner)
+export const FACE_MATCH_THRESHOLD = 0.52; // Strict & robust 1:N duplicate detection threshold (dist <= 0.52 = duplicate)
+export const FACE_LOGIN_VERIFY_THRESHOLD = 0.58; // 1:1 account owner verification during login (dist <= 0.58 = match owner)
 const FRAUD_HASH_SECRET = process.env.FRAUD_HASH_SECRET || "timebank-fraud-hash-key";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -109,13 +109,15 @@ export async function checkDuplicateRegistration({
     for (const candidate of candidates) {
       if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
       const distance = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-      if (distance < bestDistance) {
+      const cosSim = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
+      const isMatch = distance <= FACE_MATCH_THRESHOLD || (cosSim >= 0.85 && distance <= 0.58);
+      if (isMatch && distance < bestDistance) {
         bestDistance = distance;
         bestMatch = candidate;
       }
     }
-    // Biometric match threshold (distance <= FACE_MATCH_THRESHOLD)
-    if (bestMatch && bestDistance <= FACE_MATCH_THRESHOLD) {
+    // Biometric match threshold (strictly blocks duplicate / clone accounts)
+    if (bestMatch) {
       reasons.push("FACE_MATCH");
       riskScore += 100;
       return {
@@ -125,6 +127,7 @@ export async function checkDuplicateRegistration({
         reasons,
         matchedUserId: bestMatch._id,
         matchedEmail: bestMatch.email,
+        matchedName: bestMatch.name,
         matchDistance: bestDistance,
       };
     }
