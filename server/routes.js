@@ -11,7 +11,7 @@ import {
 import { getRecommendations, verifyAicteCertificate, handleWebsiteChat } from "./ai.js";
 import {
   hashIdentifier, euclideanDistance, cosineSimilarity, checkDuplicateRegistration, calculateTransactionRisk,
-  FACE_MATCH_THRESHOLD, FACE_LOGIN_VERIFY_THRESHOLD,
+  FACE_MATCH_THRESHOLD, FACE_LOGIN_VERIFY_THRESHOLD, findDuplicateFace,
 } from "./fraudService.js";
 import { pushNotification, broadcastRealtimeEvent } from "./sockets.js";
 import { issueCertificate, renderCertificatePdf, computeHash, computeLegacyHash } from "./certificateService.js";
@@ -595,7 +595,49 @@ r.post("/auth/login", async (req, res) => {
       return res.status(400).json({ error: "Email and password are required." });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim(), password });
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Instant biometric check: If face is provided, check if it belongs to another registered account
+    if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
+      const dup = await findDuplicateFace(faceDescriptor, null);
+      if (dup && dup.matchedEmail.toLowerCase() !== cleanEmail) {
+        // Flag the matched account & log fraud review for multi-accounting attempt
+        try {
+          const target = dup.user;
+          if (!target.flaggedReasons) target.flaggedReasons = [];
+          if (!target.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+            target.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+          }
+          if (!target.flaggedReasons.includes("CROSS_ACCOUNT_LOGIN_FACE")) {
+            target.flaggedReasons.push("CROSS_ACCOUNT_LOGIN_FACE");
+          }
+          target.flagged = true;
+          target.riskScore = Math.max(target.riskScore || 0, 80);
+          await target.save();
+
+          await FraudReview.create({
+            type: "user",
+            targetId: target._id,
+            userId: target._id,
+            riskScore: 80,
+            reasons: ["CROSS_ACCOUNT_LOGIN_FACE", "MULTI_ACCOUNT_ATTEMPT"],
+            status: "pending",
+            note: `User tried to log in to account '${cleanEmail}' with face enrolled on '${dup.matchedEmail}' (distance: ${dup.distance.toFixed(3)}).`,
+          });
+        } catch {}
+
+        return res.status(409).json({
+          code: "DUPLICATE_FACE",
+          duplicateFace: true,
+          matchedEmail: dup.matchedEmail,
+          matchedName: dup.matchedName,
+          crossAccountFlag: { matchedEmail: dup.matchedEmail },
+          error: `This face matches an existing TimeBank profile registered under ${dup.matchedEmail}. Please sign in to your original account.`,
+        });
+      }
+    }
+
+    const user = await User.findOne({ email: cleanEmail, password });
     if (!user) return res.status(401).json({ error: "Invalid email or password" });
 
     if (user.isBlocked) {
@@ -618,84 +660,23 @@ r.post("/auth/login", async (req, res) => {
       });
     }
 
-    // Biometric face verification for login
-    let faceMatch = null;
-    let crossAccountFlag = null;
+    // Biometric face verification / auto-enrollment for login
     if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
       if (user.faceDescriptor && user.faceDescriptor.length === 128) {
         // 1:1 Account Owner Check: Verify face against this user's enrolled biometric profile
         const dist = euclideanDistance(faceDescriptor, user.faceDescriptor);
         const cos = cosineSimilarity(faceDescriptor, user.faceDescriptor);
-        faceMatch = dist <= FACE_LOGIN_VERIFY_THRESHOLD || cos >= 0.88;
+        const faceMatch = dist <= FACE_LOGIN_VERIFY_THRESHOLD || cos >= 0.88;
         if (!faceMatch) {
-          // Check if this face belongs to an existing account on the platform
-          const candidates = await User.find({
-            _id: { $ne: user._id },
-            faceDescriptor: { $exists: true, $ne: [] },
-          });
-          let foundOther = null;
-          let otherDistance = Infinity;
-          for (const candidate of candidates) {
-            if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-            const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-            const otherCos = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-            if (otherDist <= FACE_MATCH_THRESHOLD || otherCos >= 0.90) {
-              if (otherDist < otherDistance) {
-                otherDistance = otherDist;
-                foundOther = candidate;
-              }
-            }
-          }
-
-          if (foundOther) {
-            try {
-              await FraudReview.create({
-                type: "user",
-                targetId: foundOther._id,
-                userId: foundOther._id,
-                riskScore: 80,
-                reasons: ["CROSS_ACCOUNT_LOGIN_FACE", "MULTI_ACCOUNT_ATTEMPT"],
-                status: "pending",
-                note: `User tried to log in to account '${user.email}' with face enrolled on '${foundOther.email}' (distance: ${otherDistance.toFixed(3)}).`,
-              });
-            } catch {}
-
-            return res.status(409).json({
-              code: "DUPLICATE_FACE",
-              duplicateFace: true,
-              matchedEmail: foundOther.email,
-              crossAccountFlag: { matchedEmail: foundOther.email },
-              error: `This face matches an existing TimeBank profile registered under ${foundOther.email}. Please sign in to your original account.`,
-            });
-          }
-
           return res.status(401).json({
             error: "Biometric face verification failed. Scanned face does not match the registered owner of this account.",
             faceMatch: false,
           });
         }
       } else {
-        // First-time biometric enrollment for this account: check for strict duplicate
-        const candidates = await User.find({
-          _id: { $ne: user._id },
-          faceDescriptor: { $exists: true, $ne: [] },
-        });
-        for (const candidate of candidates) {
-          if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-          const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-          const otherCos = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-          if (otherDist <= FACE_MATCH_THRESHOLD || otherCos >= 0.90) {
-            crossAccountFlag = { matchedEmail: candidate.email };
-            return res.status(409).json({
-              code: "DUPLICATE_FACE",
-              duplicateFace: true,
-              matchedEmail: candidate.email,
-              crossAccountFlag,
-              error: `This biometric face is already enrolled on another account (${candidate.email}). Multi-accounting is prohibited.`,
-            });
-          }
-        }
+        // First-time biometric enrollment for this account: store face descriptor!
         user.faceDescriptor = faceDescriptor;
+        user.verificationStatus = "verified";
       }
     }
 
@@ -881,6 +862,46 @@ r.post("/auth/verify-otp", async (req, res) => {
     // Invalidate all pending OTPs for this email now that verification succeeded
     await Otp.updateMany({ email: cleanEmail, used: false }, { used: true });
 
+    // 1. Instant biometric check: If face is provided, check if it belongs to another registered account
+    if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
+      const dup = await findDuplicateFace(faceDescriptor, null);
+      if (dup && dup.matchedEmail.toLowerCase() !== cleanEmail) {
+        // Flag the matched account & log fraud review for multi-accounting attempt
+        try {
+          const target = dup.user;
+          if (!target.flaggedReasons) target.flaggedReasons = [];
+          if (!target.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+            target.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+          }
+          if (!target.flaggedReasons.includes("CROSS_ACCOUNT_LOGIN_FACE")) {
+            target.flaggedReasons.push("CROSS_ACCOUNT_LOGIN_FACE");
+          }
+          target.flagged = true;
+          target.riskScore = Math.max(target.riskScore || 0, 80);
+          await target.save();
+
+          await FraudReview.create({
+            type: "user",
+            targetId: target._id,
+            userId: target._id,
+            riskScore: 80,
+            reasons: ["CROSS_ACCOUNT_LOGIN_FACE", "MULTI_ACCOUNT_ATTEMPT"],
+            status: "pending",
+            note: `OTP Login attempt for account '${cleanEmail}' with face enrolled on '${dup.matchedEmail}' (distance: ${dup.distance.toFixed(3)}).`,
+          });
+        } catch {}
+
+        return res.status(409).json({
+          code: "DUPLICATE_FACE",
+          duplicateFace: true,
+          matchedEmail: dup.matchedEmail,
+          matchedName: dup.matchedName,
+          crossAccountFlag: { matchedEmail: dup.matchedEmail },
+          error: `This face matches an existing TimeBank profile registered under ${dup.matchedEmail}. Please sign in to your original account.`,
+        });
+      }
+    }
+
     // Check if user exists in database
     const user = await User.findOne({ email: cleanEmail });
 
@@ -905,8 +926,7 @@ r.post("/auth/verify-otp", async (req, res) => {
         });
       }
 
-      // Biometric face verification for OTP login
-      let crossAccountFlag = null;
+      // Biometric face verification / auto-enrollment for OTP login
       if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
         if (user.faceDescriptor && user.faceDescriptor.length === 128) {
           // 1:1 Account Owner Check: Verify face against this user's enrolled biometric profile
@@ -914,74 +934,15 @@ r.post("/auth/verify-otp", async (req, res) => {
           const cos = cosineSimilarity(faceDescriptor, user.faceDescriptor);
           const faceMatch = dist <= FACE_LOGIN_VERIFY_THRESHOLD || cos >= 0.88;
           if (!faceMatch) {
-            // Check if this face belongs to an existing account on the platform
-            const candidates = await User.find({
-              _id: { $ne: user._id },
-              faceDescriptor: { $exists: true, $ne: [] },
-            });
-            let foundOther = null;
-            let otherDistance = Infinity;
-            for (const candidate of candidates) {
-              if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-              const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-              const otherCos = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-              if (otherDist <= FACE_MATCH_THRESHOLD || otherCos >= 0.90) {
-                if (otherDist < otherDistance) {
-                  otherDistance = otherDist;
-                  foundOther = candidate;
-                }
-              }
-            }
-
-            if (foundOther) {
-              try {
-                await FraudReview.create({
-                  type: "user",
-                  targetId: foundOther._id,
-                  userId: foundOther._id,
-                  riskScore: 80,
-                  reasons: ["CROSS_ACCOUNT_LOGIN_FACE", "MULTI_ACCOUNT_ATTEMPT"],
-                  status: "pending",
-                  note: `OTP Login attempt for account '${user.email}' with face enrolled on '${foundOther.email}' (distance: ${otherDistance.toFixed(3)}).`,
-                });
-              } catch {}
-
-              return res.status(409).json({
-                code: "DUPLICATE_FACE",
-                duplicateFace: true,
-                matchedEmail: foundOther.email,
-                crossAccountFlag: { matchedEmail: foundOther.email },
-                error: `This face matches an existing TimeBank profile registered under ${foundOther.email}. Please sign in to your original account.`,
-              });
-            }
-
             return res.status(401).json({
               error: "Biometric face verification failed. Scanned face does not match the registered account owner.",
               faceMatch: false,
             });
           }
         } else {
-          // First-time biometric enrollment for this account: check for strict duplicate
-          const candidates = await User.find({
-            _id: { $ne: user._id },
-            faceDescriptor: { $exists: true, $ne: [] },
-          });
-          for (const candidate of candidates) {
-            if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-            const otherDist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-            const otherCos = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-            if (otherDist <= FACE_MATCH_THRESHOLD || otherCos >= 0.90) {
-              crossAccountFlag = { matchedEmail: candidate.email };
-              return res.status(409).json({
-                code: "DUPLICATE_FACE",
-                duplicateFace: true,
-                matchedEmail: candidate.email,
-                crossAccountFlag,
-                error: `This biometric face is already enrolled on another account (${candidate.email}). Multi-accounting is prohibited.`,
-              });
-            }
-          }
+          // First-time biometric enrollment for this account: store face descriptor!
           user.faceDescriptor = faceDescriptor;
+          user.verificationStatus = "verified";
         }
       }
 
@@ -1041,50 +1002,45 @@ r.post("/auth/check-face", async (req, res) => {
 
     const cleanEmail = email ? String(email).toLowerCase().trim() : "";
 
-    // Query all existing users who have a registered faceDescriptor, excluding current email
-    const filter = {
-      faceDescriptor: { $exists: true, $ne: [] },
-    };
-    if (cleanEmail) {
-      filter.email = { $ne: cleanEmail };
-    }
+    // 1. Search across all users in TimeBank for this face
+    const match = await findDuplicateFace(faceDescriptor, null);
 
-    const candidates = await User.find(filter);
-
-    let bestMatch = null;
-    let bestDistance = Infinity;
-
-    for (const candidate of candidates) {
-      if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-      const dist = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-      const cosSim = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-      const isMatch = dist <= FACE_MATCH_THRESHOLD || (cosSim >= 0.85 && dist <= 0.58);
-      if (isMatch && dist < bestDistance) {
-        bestDistance = dist;
-        bestMatch = candidate;
+    if (match) {
+      const isOwner = cleanEmail && match.matchedEmail.toLowerCase() === cleanEmail;
+      if (isOwner) {
+        return res.json({
+          duplicate: false,
+          match: true,
+          isOwner: true,
+          matchedEmail: match.matchedEmail,
+          matchedName: match.matchedName,
+          distance: match.distance,
+          message: "Biometric face scan verified as registered account owner ✓",
+        });
       }
-    }
 
-    // Biometric match threshold (strictly blocks duplicate / clone accounts)
-    if (bestMatch) {
-      // Flag existing user profile & log fraud review for multi-accounting attempt
+      // If email differs or is blank: This face belongs to existing profile!
       try {
-        if (!bestMatch.flaggedReasons) bestMatch.flaggedReasons = [];
-        if (!bestMatch.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
-          bestMatch.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
+        const target = match.user;
+        if (!target.flaggedReasons) target.flaggedReasons = [];
+        if (!target.flaggedReasons.includes("MULTI_ACCOUNT_ATTEMPT")) {
+          target.flaggedReasons.push("MULTI_ACCOUNT_ATTEMPT");
         }
-        bestMatch.flagged = true;
-        bestMatch.riskScore = Math.max(bestMatch.riskScore || 0, 80);
-        await bestMatch.save();
+        if (!target.flaggedReasons.includes("CROSS_ACCOUNT_LOGIN_FACE")) {
+          target.flaggedReasons.push("CROSS_ACCOUNT_LOGIN_FACE");
+        }
+        target.flagged = true;
+        target.riskScore = Math.max(target.riskScore || 0, 80);
+        await target.save();
 
         await FraudReview.create({
           type: "user",
-          targetId: bestMatch._id,
-          userId: bestMatch._id,
+          targetId: target._id,
+          userId: target._id,
           riskScore: 80,
-          reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT"],
+          reasons: ["DUPLICATE_FACE_DETECTED", "MULTI_ACCOUNT_ATTEMPT", "CROSS_ACCOUNT_LOGIN_FACE"],
           status: "pending",
-          note: `Real-time biometric scan during signup matched existing primary account ${bestMatch.email} (distance: ${bestDistance.toFixed(3)}). New attempt email: ${cleanEmail || "unspecified"}.`,
+          note: `Biometric face scan check matched existing primary account '${target.email}' (distance: ${match.distance.toFixed(3)}). New attempt email: '${cleanEmail || "unspecified"}'.`,
         });
       } catch (err) {
         console.error("FraudReview log error:", err.message);
@@ -1092,17 +1048,22 @@ r.post("/auth/check-face", async (req, res) => {
 
       return res.json({
         duplicate: true,
-        matchedEmail: bestMatch.email,
-        matchedName: bestMatch.name,
-        primaryEmail: bestMatch.email,
-        distance: bestDistance,
-        message: `This face matches an existing TimeBank profile (${bestMatch.email}). Multi-accounting is strictly prohibited.`,
+        match: true,
+        isOwner: false,
+        crossAccount: true,
+        matchedEmail: match.matchedEmail,
+        matchedName: match.matchedName,
+        primaryEmail: match.matchedEmail,
+        distance: match.distance,
+        message: `This face matches an existing TimeBank profile (${match.matchedEmail}). Multi-accounting is strictly prohibited. Please sign in to your original account.`,
       });
     }
 
     return res.json({
       duplicate: false,
-      message: "Biometric face scan verified. No duplicate registered face found.",
+      match: false,
+      isOwner: false,
+      message: "Biometric face scan is unique. No registered account found with this profile.",
     });
   } catch (e) {
     console.error("Error in /auth/check-face:", e);
@@ -1964,20 +1925,27 @@ r.post("/auth/face-verify", requireAuth, async (req, res) => {
   try {
     const { faceDescriptor } = req.body;
     if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
-      return res.status(400).json({ error: "Invalid face descriptor" });
+      return res.status(400).json({ error: "Invalid face descriptor. Expected 128-dimensional embedding array." });
     }
 
     // Check if this face belongs to a different user
-    const allUsersWithFace = await User.find({ faceDescriptor: { $exists: true, $ne: [] }, _id: { $ne: req.user.id } });
-    for (const existing of allUsersWithFace) {
-      const dist = euclideanDistance(faceDescriptor, existing.faceDescriptor);
-      if (dist <= FACE_MATCH_THRESHOLD) {
-        return res.status(409).json({ error: "This face is already associated with another account." });
-      }
+    const dup = await findDuplicateFace(faceDescriptor, null, req.user.id);
+    if (dup) {
+      return res.status(409).json({
+        code: "DUPLICATE_FACE",
+        duplicateFace: true,
+        matchedEmail: dup.matchedEmail,
+        matchedName: dup.matchedName,
+        error: `This face is already enrolled on another account (${dup.matchedEmail}). Multi-accounting is strictly prohibited.`,
+      });
     }
 
-    const user = await User.findByIdAndUpdate(req.user.id, { faceDescriptor }, { new: true });
-    res.json({ ok: true, user });
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { faceDescriptor, verificationStatus: "verified" },
+      { new: true }
+    );
+    res.json({ ok: true, user, message: "Biometric face scan enrolled and stored successfully! ✓" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1993,7 +1961,9 @@ r.post("/auth/face-check", requireAuth, async (req, res) => {
       return res.json({ match: false, distance: null, enrolled: false });
     }
     const distance = euclideanDistance(faceDescriptor, user.faceDescriptor);
-    res.json({ match: distance <= FACE_MATCH_THRESHOLD, distance, enrolled: true });
+    const cosSim = cosineSimilarity(faceDescriptor, user.faceDescriptor);
+    const match = distance <= FACE_LOGIN_VERIFY_THRESHOLD || cosSim >= 0.88;
+    res.json({ match, distance, enrolled: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -292,7 +292,7 @@ export default function RegistrationWizard({
       }
     } catch (e) {
       if (e.code === 'DUPLICATE_FACE' || e.duplicateFace || e.message?.includes('face matches an existing account') || e.message?.includes('already enrolled')) {
-        const matched = e.matchedEmail || e.data?.matchedEmail || e.primaryEmail;
+        const matched = e.matchedEmail || e.data?.matchedEmail || e.data?.crossAccountFlag?.matchedEmail || e.primaryEmail;
         setDuplicateMatch({
           matchedEmail: matched || 'your original registered email',
           matchedName: e.matchedName || e.data?.matchedName || '',

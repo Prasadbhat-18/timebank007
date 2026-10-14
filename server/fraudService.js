@@ -34,6 +34,49 @@ export function hashIdentifier(value) {
     .digest("hex");
 }
 
+// ─── UNIFIED BIOMETRIC DUPLICATE FACE SEARCH ─────────────────────────────────
+export async function findDuplicateFace(faceDescriptor, excludeEmail = null, excludeUserId = null) {
+  if (!faceDescriptor || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+    return null;
+  }
+  const cleanEmail = excludeEmail ? String(excludeEmail).toLowerCase().trim() : null;
+  const filter = {
+    faceDescriptor: { $exists: true, $ne: [] },
+  };
+  if (cleanEmail) {
+    filter.email = { $ne: cleanEmail };
+  }
+  if (excludeUserId) {
+    filter._id = { $ne: excludeUserId };
+  }
+
+  const candidates = await User.find(filter);
+  let bestMatch = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of candidates) {
+    if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
+    const distance = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
+    const cosSim = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
+    const isMatch = distance <= FACE_MATCH_THRESHOLD || (cosSim >= 0.85 && distance <= 0.58);
+    if (isMatch && distance < bestDistance) {
+      bestDistance = distance;
+      bestMatch = candidate;
+    }
+  }
+
+  if (bestMatch) {
+    return {
+      user: bestMatch,
+      distance: bestDistance,
+      matchedEmail: bestMatch.email,
+      matchedName: bestMatch.name,
+      matchedUserId: bestMatch._id,
+    };
+  }
+  return null;
+}
+
 // ─── REGISTRATION DUPLICATE & RISK CHECK ──────────────────────────────────────
 export async function checkDuplicateRegistration({
   email,
@@ -102,22 +145,10 @@ export async function checkDuplicateRegistration({
   let bestDistance = Infinity;
 
   if (faceDescriptor && Array.isArray(faceDescriptor) && faceDescriptor.length === 128) {
-    const candidates = await User.find({
-      email: { $ne: cleanEmail },
-      faceDescriptor: { $exists: true, $ne: [] },
-    });
-    for (const candidate of candidates) {
-      if (!candidate.faceDescriptor || candidate.faceDescriptor.length !== 128) continue;
-      const distance = euclideanDistance(faceDescriptor, candidate.faceDescriptor);
-      const cosSim = cosineSimilarity(faceDescriptor, candidate.faceDescriptor);
-      const isMatch = distance <= FACE_MATCH_THRESHOLD || (cosSim >= 0.85 && distance <= 0.58);
-      if (isMatch && distance < bestDistance) {
-        bestDistance = distance;
-        bestMatch = candidate;
-      }
-    }
-    // Biometric match threshold (strictly blocks duplicate / clone accounts)
-    if (bestMatch) {
+    const dup = await findDuplicateFace(faceDescriptor, cleanEmail);
+    if (dup) {
+      bestMatch = dup.user;
+      bestDistance = dup.distance;
       reasons.push("FACE_MATCH");
       riskScore += 100;
       return {
@@ -125,10 +156,10 @@ export async function checkDuplicateRegistration({
         flagged: false,
         riskScore,
         reasons,
-        matchedUserId: bestMatch._id,
-        matchedEmail: bestMatch.email,
-        matchedName: bestMatch.name,
-        matchDistance: bestDistance,
+        matchedUserId: dup.matchedUserId,
+        matchedEmail: dup.matchedEmail,
+        matchedName: dup.matchedName,
+        matchDistance: dup.distance,
       };
     }
   }

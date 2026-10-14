@@ -36,10 +36,9 @@ async function req(path, opts = {}) {
   if (!res.ok) {
     const err = new Error(data.error || data.message || `Request failed (${res.status})`);
     err.status = res.status;
-    err.code = data.code;
-    err.matchedEmail = data.matchedEmail;
+    err.matchedEmail = data.matchedEmail || data.crossAccountFlag?.matchedEmail || data.primaryEmail;
     err.matchedName = data.matchedName;
-    err.duplicateFace = data.duplicateFace || (data.reasons && data.reasons.includes("FACE_MATCH"));
+    err.duplicateFace = data.duplicateFace || data.duplicate || (data.reasons && data.reasons.includes("FACE_MATCH")) || data.code === "DUPLICATE_FACE";
     err.reasons = data.reasons;
     err.waitingApproval = data.waitingApproval;
     err.userId = data.userId;

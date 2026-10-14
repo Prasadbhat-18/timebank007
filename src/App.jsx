@@ -995,6 +995,7 @@ export default function App() {
                     setDupeFaceModal(null);
                     setAuthInitialEmail(matched);
                     nav("auth");
+                    notify(`Switched to registered account (${matched}). Please sign in.`);
                   }}
                 >
                   Sign In with {dupeFaceModal.matchedEmail} →
@@ -2235,6 +2236,48 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
 
   const [showFaceScan, setShowFaceScan] = useState(false);
 
+  // Real-time biometric face check on scan during login
+  const handleAuthFaceCaptured = async (desc) => {
+    setFaceDescriptor(desc);
+    setShowFaceScan(false);
+    setLoading(true);
+    try {
+      const res = await api.checkFaceDuplicate(desc, le ? le.trim() : "");
+      if (res.duplicate || res.crossAccount) {
+        const matched = res.matchedEmail;
+        setLe(matched);
+        setTab("login");
+        setRegRole(null);
+        setError(`⚠️ Existing profile detected (${matched}). Redirected to your primary account.`);
+        if (setDupeFaceModal) {
+          setDupeFaceModal({ matchedEmail: matched, matchedName: res.matchedName });
+        }
+        if (notify) notify(`Face matches registered account (${matched}). Redirected to your account.`, "warning");
+      } else if (res.isOwner || (res.match && res.matchedEmail?.toLowerCase() === le.toLowerCase().trim())) {
+        setError("");
+        if (notify) notify("Biometric face verified as account owner! ✓", "success");
+      } else {
+        if (notify) notify("Face scan captured successfully! 👤✓");
+      }
+    } catch (err) {
+      if (err.duplicateFace || err.code === "DUPLICATE_FACE" || err.matchedEmail || err.data?.crossAccountFlag) {
+        const matched = err.matchedEmail || err.data?.crossAccountFlag?.matchedEmail || err.data?.matchedEmail;
+        setLe(matched);
+        setTab("login");
+        setRegRole(null);
+        setError(`⚠️ Existing profile detected (${matched}). Redirected to your primary account.`);
+        if (setDupeFaceModal) {
+          setDupeFaceModal({ matchedEmail: matched });
+        }
+        if (notify) notify(`Face matches registered account (${matched}). Redirected to your account.`, "warning");
+      } else {
+        if (notify) notify("Face scan captured 👤");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Send Login OTP
   const handleSendLoginOtp = async () => {
     if (!le || !le.includes("@")) {
@@ -2632,13 +2675,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                         </div>
                         {showFaceScan && (
                           <div style={{ marginTop: 10 }}>
-                            <FaceVerification
-                              onCaptured={(desc) => {
-                                setFaceDescriptor(desc);
-                                setShowFaceScan(false);
-                                if (notify) notify("Face scan captured successfully! 👤✓");
-                              }}
-                            />
+                            <FaceVerification onCaptured={handleAuthFaceCaptured} />
                           </div>
                         )}
                       </div>
@@ -2710,13 +2747,7 @@ function Auth({ doLogin, doLoginWithOtp, doRegister, clockAngle, autofillOtpData
                     </div>
                     {showFaceScan && (
                       <div style={{ marginTop: 10 }}>
-                        <FaceVerification
-                          onCaptured={(desc) => {
-                            setFaceDescriptor(desc);
-                            setShowFaceScan(false);
-                            if (notify) notify("Face scan captured successfully! 👤✓");
-                          }}
-                        />
+                        <FaceVerification onCaptured={handleAuthFaceCaptured} />
                       </div>
                     )}
                   </div>
@@ -4445,6 +4476,57 @@ function Profile({ user, wallet, notify, setModal, refreshUser, connectWallet, d
               ))}
             </div>
           )}
+
+          {/* Biometric Face Verification Status */}
+          <div style={{
+            background: (user.faceDescriptor && user.faceDescriptor.length === 128)
+              ? "rgba(16, 185, 129, 0.08)"
+              : "rgba(245, 158, 11, 0.08)",
+            border: `1px solid ${(user.faceDescriptor && user.faceDescriptor.length === 128)
+              ? "rgba(16, 185, 129, 0.3)"
+              : "rgba(245, 158, 11, 0.3)"}`,
+            borderRadius: 12,
+            padding: "10px 14px",
+            marginBottom: 14,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>{(user.faceDescriptor && user.faceDescriptor.length === 128) ? "🛡️" : "👤"}</span>
+              <div>
+                <div style={{
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: (user.faceDescriptor && user.faceDescriptor.length === 128) ? "#34d399" : "#fbbf24",
+                }}>
+                  {(user.faceDescriptor && user.faceDescriptor.length === 128)
+                    ? "Biometric Face ID Enrolled ✓"
+                    : "Biometric Face Scan Missing"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  {(user.faceDescriptor && user.faceDescriptor.length === 128)
+                    ? "128-dimensional facial embedding active for multi-account prevention"
+                    : "Verify your face to ensure multi-account protection & verified badge"}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={(user.faceDescriptor && user.faceDescriptor.length === 128) ? "btn btn-o btn-sm" : "btn btn-p btn-sm"}
+              style={{
+                padding: "5px 12px",
+                fontSize: 11.5,
+                whiteSpace: "nowrap",
+                ...(!(user.faceDescriptor && user.faceDescriptor.length === 128) ? { background: "#f59e0b", borderColor: "#d97706", color: "#000", fontWeight: 700 } : {}),
+              }}
+              onClick={() => setModal(<FaceEnrollModal refreshUser={refreshUser} notify={notify} close={() => setModal(null)} />)}
+            >
+              {(user.faceDescriptor && user.faceDescriptor.length === 128) ? "Rescan Face" : "Verify Face Now 👤"}
+            </button>
+          </div>
+
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="btn btn-o btn-sm" onClick={editProfile}>Edit profile</button>
             {!user.isAlumni && user.role !== "websiteAdmin" && user.role !== "collegeAdmin" && user.role !== "super_admin" && user.role !== "institute_admin" && (
@@ -5772,6 +5854,54 @@ export function GraduateTransitionModal({ user, refreshUser, close, notify }) {
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── BIOMETRIC FACE ENROLL MODAL ─────────────────────────────────────────────
+export function FaceEnrollModal({ refreshUser, notify, close }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleCapture = async (desc) => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.enrollFace(desc);
+      if (notify) notify(res.message || "Biometric face enrolled and stored successfully! ✓");
+      if (refreshUser) await refreshUser();
+      close();
+    } catch (e) {
+      const msg = e.duplicateFace || e.code === "DUPLICATE_FACE"
+        ? (e.message || "This face is already enrolled on another account.")
+        : (e.message || "Failed to enroll face biometric.");
+      setError(msg);
+      if (notify) notify(msg, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: "1.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff" }}>👤 Biometric Face Verification</h3>
+        <button className="btn btn-o btn-sm" onClick={close} style={{ padding: "4px 8px" }}>✕</button>
+      </div>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.5 }}>
+        Look directly at the camera to capture your biometric face scan. Your 128-dimensional facial embedding is stored securely for multi-account prevention and instant 1-click verification.
+      </p>
+      {error && (
+        <div style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 10, padding: "10px 14px", color: "#f87171", fontSize: 13, marginBottom: "1rem" }}>
+          ⚠️ {error}
+        </div>
+      )}
+      <FaceVerification onCaptured={handleCapture} />
+      {loading && (
+        <div style={{ textAlign: "center", marginTop: 12, color: "#818cf8", fontSize: 13, fontWeight: 600 }}>
+          ⏳ Verifying uniqueness and storing facial biometrics...
+        </div>
+      )}
     </div>
   );
 }
